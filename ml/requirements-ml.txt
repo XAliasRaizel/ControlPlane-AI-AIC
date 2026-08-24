@@ -1,0 +1,6 @@
+# Optional research/training dependencies. Keep them separate from the gateway.
+torch>=2.4,<2.7
+transformers>=4.47,<4.50
+datasets>=3.2,<3.4
+scikit-learn>=1.5,<1.7
+accelerate>=1.2,<1.4

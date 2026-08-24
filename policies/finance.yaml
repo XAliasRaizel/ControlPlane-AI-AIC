@@ -1,0 +1,38 @@
+# ControlPlane.ai — Finance Department Policy
+# Overrides global policy for finance applications.
+name: "finance-governance"
+version: "2"
+policy_set: finance
+scope:
+  applications: ["loan-decision"]
+  departments: ["Finance"]
+
+defaults:
+  action: ALLOW
+
+rules:
+  - id: finance-restricted-data
+    description: Restricted data in a high-impact finance application requires human review.
+    priority: 90
+    when:
+      application_in: ["loan-decision"]
+      data_classification_in: ["HIGH", "RESTRICTED"]
+    action: HUMAN_REVIEW
+    reason: "Restricted financial data requires human review"
+
+  - id: finance-pii-redact
+    description: Redact PII in finance responses.
+    priority: 60
+    when:
+      detector_score_at_least:
+        pii: 0.3
+    action: MODIFY
+    reason: "Redact PII from financial data"
+
+  - id: finance-high-risk
+    description: High risk finance interactions need review.
+    priority: 50
+    when:
+      risk_at_least: 0.7
+    action: HUMAN_REVIEW
+    reason: "High risk in financial context"

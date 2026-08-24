@@ -1,0 +1,39 @@
+# ControlPlane.ai — HR Department Policy (Section 8)
+# Overrides global policy for HR applications.
+name: "hr-governance"
+version: "2"
+policy_set: hr
+scope:
+  applications: ["hr-copilot"]
+  departments: ["HR"]
+
+defaults:
+  action: ALLOW
+
+rules:
+  - id: hr-pii-unauthorized
+    description: Never expose PII-classified data to an unauthorized caller.
+    priority: 100
+    when:
+      detector_score_at_least:
+        pii: 0.3
+        authorization: 0.5
+    action: BLOCK
+    reason: "Unauthorized access to PII-classified data"
+
+  - id: hr-high-risk
+    description: High aggregate risk requires reviewer sign-off.
+    priority: 80
+    when:
+      risk_at_least: 0.8
+    action: HUMAN_REVIEW
+    reason: "High aggregate risk requires reviewer sign-off"
+
+  - id: hr-pii-present
+    description: Redact detected PII before returning response.
+    priority: 60
+    when:
+      detector_score_at_least:
+        pii: 0.3
+    action: MODIFY
+    reason: "Redact detected PII before returning response"

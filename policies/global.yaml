@@ -1,0 +1,58 @@
+# ControlPlane.ai — Global Governance Policy
+# Applies to all applications unless overridden by a more specific policy.
+# Rules are evaluated by priority (descending). Conditions in `when` are AND-combined.
+name: "global-governance"
+version: "2"
+policy_set: global
+scope: {}
+
+defaults:
+  action: ALLOW
+
+rules:
+  - id: block-prompt-injection
+    description: High-confidence instruction-override, extraction, jailbreak, or role-manipulation attempt.
+    priority: 95
+    when:
+      detector_score_at_least:
+        injection: 0.85
+    action: BLOCK
+
+  - id: block-dangerous-content
+    description: Critical unsafe-content request detected in the hot path.
+    priority: 95
+    when:
+      detector_score_at_least:
+        safety: 0.8
+    action: BLOCK
+
+  - id: block-unauthorized-access
+    description: Block any attempt to access sensitive data without proper authorization.
+    priority: 90
+    when:
+      detector_score_at_least:
+        authorization: 0.5
+    action: BLOCK
+
+  - id: block-unauthorized-pii
+    description: Block when both PII and unauthorized access are detected.
+    priority: 85
+    when:
+      detector_score_at_least:
+        pii: 0.3
+        authorization: 0.5
+    action: BLOCK
+
+  - id: risk-based-review
+    description: High combined risk requires a human decision.
+    priority: 40
+    when:
+      risk_at_least: 0.75
+    action: HUMAN_REVIEW
+
+  - id: risk-based-modification
+    description: Moderate combined risk is handled by sanitization and a controlled response.
+    priority: 30
+    when:
+      risk_at_least: 0.25
+    action: MODIFY

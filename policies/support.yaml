@@ -1,0 +1,48 @@
+# ControlPlane.ai — Support Bot Policy
+# Overrides global policy for support applications.
+name: "support-governance"
+version: "2"
+policy_set: support
+scope:
+  applications: ["support-bot"]
+  departments: ["Support"]
+
+defaults:
+  action: ALLOW
+
+rules:
+  - id: support-block-injection
+    description: Block prompt injection in support bot.
+    priority: 95
+    when:
+      detector_score_at_least:
+        injection: 0.85
+    action: BLOCK
+    reason: "Prompt injection attempt in support bot"
+
+  - id: support-block-safety
+    description: Block harmful, hacking, or dangerous queries.
+    priority: 95
+    when:
+      detector_score_at_least:
+        safety: 0.7
+    action: BLOCK
+    reason: "Harmful or security-violating content detected"
+
+  - id: support-block-unauthorized
+    description: Block unauthorized sensitive resource access.
+    priority: 90
+    when:
+      detector_score_at_least:
+        authorization: 0.5
+    action: BLOCK
+    reason: "Unauthorized access to sensitive resource in support bot"
+
+  - id: support-pii-redact
+    description: Redact PII detected in support responses.
+    priority: 60
+    when:
+      detector_score_at_least:
+        pii: 0.3
+    action: MODIFY
+    reason: "Redact PII from support response"

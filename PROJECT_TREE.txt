@@ -1,0 +1,58 @@
+controlplane_ai/
+├── .env.example                         # Local configuration template
+├── .github/workflows/test.yml           # CI: compile and test
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── README.md
+├── requirements.txt                     # Gateway/dashboard/test dependencies
+├── PROJECT_TREE.txt
+├── backend/
+│   ├── __init__.py
+│   └── app/
+│       ├── __init__.py
+│       ├── main.py                      # FastAPI gateway and API routes
+│       ├── models.py                    # Request/response contracts
+│       ├── config.py
+│       ├── audit.py                     # HMAC fingerprint + allow-listed audit context
+│       ├── db.py                        # SQLite audit, jobs and feedback persistence
+│       ├── risk_engine.py               # Explainable signal fusion
+│       ├── policy_engine.py             # YAML policy evaluator
+│       ├── decision_engine.py           # Action and controlled-response logic
+│       ├── async_service.py             # In-process prototype queue/worker
+│       ├── gpu_adapter.py               # Optional model inference seam
+│       ├── detectors/
+│       │   ├── base.py
+│       │   ├── pii.py
+│       │   ├── injection.py
+│       │   ├── dangerous.py
+│       │   ├── authorization.py
+│       │   ├── critical_policy.py
+│       │   └── fast_risk.py
+│       └── async_engines/
+│           ├── safety.py
+│           ├── privacy.py
+│           ├── fairness.py
+│           ├── grounding.py
+│           ├── performance.py
+│           ├── cost.py
+│           ├── business.py
+│           └── README.md
+├── policies/
+│   └── default.yaml                     # Versioned policy-as-code
+├── frontend/
+│   └── streamlit_app.py                 # Governance dashboard + feedback UI
+├── data/
+│   ├── README.md
+│   └── prompt_injection_sample.jsonl    # Synthetic pipeline smoke-test data
+├── ml/
+│   ├── README.md
+│   ├── requirements-ml.txt              # Optional, isolated ML dependencies
+│   └── train_prompt_injection.py         # Group-split RoBERTa experiment
+├── docs/
+│   └── architecture.md
+└── tests/
+    ├── test_gateway_api.py
+    ├── test_governance.py
+    ├── test_policy_engine.py
+    └── test_async_service.py

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.env
+.vscode/
+.streamlit/secrets.toml
+ml/artifacts/
+coverage.xml
+.pytest_cache/
