@@ -7,10 +7,37 @@ from backend.shared.schemas import GovernanceRequest, DetectorResult, RiskAssess
 CRITICAL_APPS = {"loan-decision", "hiring-decision", "medical-decision"}
 HIGH_SENSITIVITY = {"HIGH", "RESTRICTED"}
 
+# A context-only "worth flagging for audit" baseline. Deliberately far below
+# every risk_at_least threshold in policies/*.yaml (0.25, 0.75, 0.8) -- see
+# the note on context below for why this is a flat constant, not a formula.
+CONTEXT_ONLY_BASELINE = 0.15
+CONTEXT_ESCALATION = 1.35
+
 
 def _score(detectors: list[DetectorResult], names: set[str]) -> float:
     values = [d.score for d in detectors if d.detector_name in names]
     return max(values, default=0.0)
+
+
+def _noisy_or(scores: list[float]) -> float:
+    """Combine independent-ish risk signals the way a naive-Bayes / noisy-OR
+    model does: P(risk) = 1 - product(1 - p_i).
+
+    This is the same family of technique fraud-detection systems moved
+    toward after finding that summing or averaging per-signal scores "does
+    not take into account the uncertainty of each predictor" (see e.g.
+    Bayesian/Dempster-Shafer evidence combination in fraud literature). Two
+    useful properties for this system specifically:
+      - One maximal signal still dominates (same floor behavior the
+        previous fix relied on: if any p_i = 1.0, the result is 1.0).
+      - Multiple *simultaneously* elevated-but-not-maximal signals compound
+        upward instead of just averaging out -- something neither a plain
+        weighted mean nor a bare max() captures.
+    """
+    product = 1.0
+    for p in scores:
+        product *= (1.0 - max(0.0, min(1.0, p)))
+    return 1.0 - product
 
 
 def calculate_risk(
@@ -24,44 +51,49 @@ def calculate_risk(
     safety = _score(detector_results, {"safety"})
     fairness = _score(detector_results, {"fairness"})
 
-    # FIX (was dead code): this used to read context.get("sensitivity"), a key
-    # enrich_context() never produces -- it produces "data_classification".
-    # That made the 0.9 privacy boost unreachable for every request, silently.
-    # Read the real signal, and fall back to the request itself so this still
-    # works even if a caller passes context={} directly (as the unit tests do).
     data_classification = (
         context.get("data_classification") or request.data_classification or ""
     ).upper()
     sensitivity_high = data_classification in HIGH_SENSITIVITY
-
-    privacy = max(pii, 0.9 if sensitivity_high else 0.0)
-
     critical_context = request.application_id in CRITICAL_APPS or sensitivity_high
-    contextual = 0.85 if critical_context else 0.15
 
-    # FIX (was a straight weighted sum): a plain weighted average lets clean,
-    # irrelevant detectors dilute a single maximal-confidence finding. The
-    # golden-path case -- 100%-confidence unauthorized access + 85% PII, with
-    # injection/safety both clean -- previously landed at overall_risk=0.46,
-    # which is why "hr-high-risk" (risk_at_least: 0.8) could never fire for
-    # the single most common violation pattern in this system.
+    # v2 FIX: v1 of this fix (see git history) let sensitivity_high alone
+    # set `privacy = 0.9` regardless of what the PII detector actually
+    # found -- so *any* request in a HIGH/RESTRICTED-tagged context, even a
+    # completely benign one with all four hot-path detectors clean, floored
+    # at privacy=0.9 and escalated to overall_risk=1.0. That's what
+    # surfaced live: "Tell me how many casual leaves employees receive"
+    # landed as HUMAN_REVIEW purely because data_classification=HIGH was
+    # set for the session, with zero actual detector evidence.
     #
-    # A severity floor means the single worst finding always sets the risk
-    # floor (OR-like: one severe signal is enough); the blended term still
-    # rewards *multiple* elevated dimensions on top of that. Context is then
-    # applied as an escalator on the result, not diluted in as one more
-    # additive slice competing for the same weight budget.
-    severity_floor = max(privacy, injection, authorization, safety, fairness)
-    blended = (
-        0.25 * privacy
-        + 0.25 * injection
-        + 0.25 * authorization
-        + 0.15 * safety
-        + 0.10 * fairness
-    )
-    base_risk = max(severity_floor, blended)
-    context_escalation = 1.15 if critical_context else 1.0
-    overall_risk = min(1.0, base_risk * context_escalation)
+    # privacy is now driven only by what was actually detected. Context
+    # amplifies real signal (below); it no longer manufactures signal from
+    # nothing. A policy that genuinely wants "HUMAN_REVIEW for any RESTRICTED
+    # request regardless of content" should say that directly, the way
+    # finance.yaml's `data_classification_in` rule already correctly does
+    # -- not smuggle it through overall_risk as a side effect.
+    privacy = pii
+
+    detector_signals = [privacy, injection, authorization, safety, fairness]
+    base_risk = _noisy_or(detector_signals)
+
+    if critical_context and base_risk > 0:
+        # Real signal, in a sensitive context: escalate it. This is the
+        # "adjust confidence when other indicators already look
+        # questionable" pattern -- context amplifies existing evidence.
+        overall_risk = min(1.0, base_risk * CONTEXT_ESCALATION)
+    elif critical_context:
+        # Sensitive context, but nothing was actually found. Worth a
+        # non-zero, visible number for audit/reporting -- but nowhere near
+        # any enforcement threshold in policies/*.yaml. If this specific
+        # combination of app/data-class should always need a human, that's
+        # a direct policy rule (finance.yaml already has one), not a risk
+        # score side effect.
+        overall_risk = CONTEXT_ONLY_BASELINE
+    else:
+        overall_risk = base_risk
+
+    contextual = 0.85 if critical_context else 0.15
 
     if detector_results:
         confidence = sum(d.confidence for d in detector_results) / len(detector_results)

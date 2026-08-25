@@ -23,7 +23,7 @@ _VALUE_PATTERNS = {
 }
 _REQUEST_PATTERNS = {
     "phone_request": r"\b(?:phone\s*number|mobile\s*number|contact\s*number|phone|mobile)\b",
-    "salary_request": r"\b(?:salary|compensation|pay|payroll|wage|ctc)\b",
+    "salary_request": r"\b(?:salary|compensation|pay|payroll|wage|ctc|income|earnings|remuneration)\b",
     "account_request": r"\b(?:account\s*access|account\s*details|account\s*info|bank\s*account|account\s*number)\b",
     "personal_data_request": r"\b(?:personal\s*phone|personal\s*email|private\s*data|personal\s*info|personal\s*details)\b",
 }

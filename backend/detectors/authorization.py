@@ -9,9 +9,18 @@ class AuthorizationDetector(BaseDetector):
     async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
         text = request.prompt.lower()
         resource_permissions = {
+            # FIX: "tell me the monthly income of rahul" sailed through as
+            # ALLOW/risk=0.00 -- "income" wasn't in this list at all. Added
+            # the most obvious synonyms here, but be honest about what this
+            # is: a keyword list will always be one paraphrase behind
+            # ("take-home pay", "what he earns", "his remuneration" all
+            # still bypass this). The durable fix is semantic detection
+            # (Phase 6 -- a real classifier, per ml/README.md), not a
+            # forever-growing list. Treat this list as a stopgap, not a fix.
             "salary": (
                 "can_access_salary",
-                ["salary", "pay", "compensation", "payroll", "wage", "ctc", "bonus details"],
+                ["salary", "pay", "compensation", "payroll", "wage", "ctc",
+                 "bonus details", "income", "earnings", "remuneration", "take-home"],
             ),
             "bank_account": (
                 "can_access_bank_account",
