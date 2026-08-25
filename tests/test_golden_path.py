@@ -64,7 +64,13 @@ def test_pii_detector_fires(hr_salary_request, context_no_salary_access):
         PIIDetector().analyze(hr_salary_request, context_no_salary_access)
     )
     assert result.score > 0, "PII detector should fire on 'salary' + 'phone number'"
-    assert result.label == "PII_DETECTED"
+    # UPDATED: the prompt asks about salary/phone but contains no confirmed
+    # PII *value* (no actual email, phone number, etc. is present) -- that's
+    # exactly the PII_REQUEST_AMBIGUOUS case, distinct from PII_DETECTED
+    # (see backend/detectors/pii.py). The distinction is the fix, not a
+    # regression: it's what lets this detector express a score/confidence
+    # below "certain" instead of only ever being 0.0 or ~0.9+.
+    assert result.label in {"PII_DETECTED", "PII_REQUEST_AMBIGUOUS"}
 
 
 def test_authorization_detector_denies(hr_salary_request, context_no_salary_access):
@@ -106,7 +112,14 @@ def test_risk_engine_high_risk(hr_salary_request, context_no_salary_access):
         run_hot_path(hr_salary_request, context_no_salary_access)
     )
     risk = calculate_risk(hr_salary_request, results, context_no_salary_access)
-    assert risk.overall_risk >= 0.2, f"Expected elevated risk, got {risk.overall_risk}"
+    # UPDATED: this file's own module docstring documents "overall_risk >= 0.5"
+    # as the expected value for this scenario, but the assertion here checked
+    # >= 0.2 -- weak enough that the old weighted-average risk engine (which
+    # actually produced ~0.46 for this case, via dilution from unrelated
+    # clean detectors) passed anyway. That gap is exactly how the bug shipped
+    # with a fully green test suite. Asserting the number the docstring
+    # always claimed is the point of the fix.
+    assert risk.overall_risk >= 0.5, f"Expected elevated risk, got {risk.overall_risk}"
     assert risk.confidence > 0
 
 

@@ -81,11 +81,12 @@ def fetch_async_analysis(job_id: str, timeout: float = 3.0):
     return None
 
 
-tab_chat, tab_manual, tab_metrics, tab_policies = st.tabs([
+tab_chat, tab_manual, tab_metrics, tab_policies, tab_reviews = st.tabs([
     "💬 Governance Chatbot",
     "🔬 Advanced Inspector",
     "📊 Platform Metrics",
     "📜 Policy Rules",
+    "🗂️ Review Queue",
 ])
 
 
@@ -359,3 +360,56 @@ with tab_policies:
         st.dataframe(pol.get("rules", []), use_container_width=True)
     except Exception as e:
         st.warning(f"Could not fetch policies: {e}")
+
+
+# ==============================================================================
+# TAB 5: REVIEW QUEUE
+# ==============================================================================
+# NEW: HUMAN_REVIEW decisions used to be auto-downgraded to BLOCK before this
+# fix (see backend/review/queue.py) because there was nowhere for them to
+# land. Now they're held as genuinely pending, and this tab is where a human
+# actually resolves them -- the missing last step in the decision loop.
+with tab_reviews:
+    st.subheader("🗂️ Human Review Queue")
+    st.caption("Requests routed to HUMAN_REVIEW are held here — nothing is silently auto-blocked.")
+
+    if st.button("🔄 Refresh Queue"):
+        st.rerun()
+
+    try:
+        pending = requests.get(f"{API}/v1/reviews", timeout=5).json()
+    except Exception as e:
+        pending = []
+        st.warning(f"Could not load review queue: {e}")
+
+    if not pending:
+        st.info("No pending reviews. 🎉")
+    else:
+        for item in pending:
+            with st.container(border=True):
+                st.markdown(
+                    f"**Request** `{item['request_id'][:8]}...`  ·  "
+                    f"**Risk:** `{item['risk']:.2f}`  ·  **Policy:** `{item['policy_id']}`"
+                )
+                st.caption(item["reason"])
+                c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
+                reviewer = c1.text_input("Reviewer", "reviewer", key=f"rv_{item['request_id']}")
+                action = c2.selectbox(
+                    "Resolve as", ["BLOCK", "ALLOW", "MODIFY", "REROUTE"], key=f"act_{item['request_id']}"
+                )
+                notes = c4.text_input("Notes", key=f"notes_{item['request_id']}")
+                if c3.button("Resolve", key=f"resolve_{item['request_id']}"):
+                    try:
+                        res = requests.post(
+                            f"{API}/v1/reviews/{item['request_id']}/resolve",
+                            json={"reviewer_id": reviewer, "final_action": action, "notes": notes},
+                            timeout=5,
+                        )
+                        if res.status_code == 200:
+                            st.success("Resolved.")
+                            st.rerun()
+                        else:
+                            st.error(res.text)
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+

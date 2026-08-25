@@ -101,6 +101,19 @@ class Database:
             policy TEXT NOT NULL,
             decision_details TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS pending_reviews (
+            request_id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            policy_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            risk REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            final_action TEXT,
+            reviewer_id TEXT,
+            notes TEXT,
+            resolved_at TEXT
+        );
         """)
         conn.commit()
         conn.close()
@@ -238,6 +251,44 @@ class Database:
         row = conn.execute("SELECT 1 FROM requests WHERE request_id=?", (request_id,)).fetchone()
         conn.close()
         return row is not None
+
+    def create_review(self, request_id: str, policy_id: str, reason: str, risk: float):
+        conn = self.connect()
+        conn.execute(
+            "INSERT OR REPLACE INTO pending_reviews "
+            "(request_id, created_at, policy_id, reason, risk, status) "
+            "VALUES (?, ?, ?, ?, ?, 'PENDING')",
+            (request_id, datetime.now(timezone.utc).isoformat(), policy_id, reason, risk),
+        )
+        conn.commit()
+        conn.close()
+
+    def resolve_review(self, request_id: str, final_action: str, reviewer_id: str, notes: str = ""):
+        conn = self.connect()
+        conn.execute(
+            "UPDATE pending_reviews SET status='RESOLVED', final_action=?, "
+            "reviewer_id=?, notes=?, resolved_at=? WHERE request_id=?",
+            (final_action, reviewer_id, notes, datetime.now(timezone.utc).isoformat(), request_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def list_pending_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT * FROM pending_reviews WHERE status='PENDING' ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def get_review(self, request_id: str) -> Dict[str, Any] | None:
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT * FROM pending_reviews WHERE request_id=?", (request_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
 
     def metrics(self) -> Dict[str, Any]:
         conn = self.connect()

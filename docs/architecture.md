@@ -6,7 +6,9 @@
 2. The gateway assigns a request ID and concurrently runs all hot-path
    detectors with `asyncio.gather`.
 3. The risk engine combines normalized signals using fixed, documented weights.
-4. The policy engine evaluates `policies/default.yaml` in priority order.
+4. The policy engine evaluates every file in `policies/` (currently
+   `global.yaml`, `hr.yaml`, `finance.yaml`, `support.yaml`), most-specific
+   scope first (application > department > global), each in priority order.
 5. The decision engine returns the required action and, when appropriate,
    sanitizes the candidate response.
 6. The gateway writes privacy-conscious audit metadata and enqueues a separate
@@ -36,17 +38,28 @@ versioned service with timeouts and circuit breaking.
 
 ## Risk fusion
 
-The current aggregate is deliberately explainable:
+The aggregate score is a severity floor blended with a weighted signal, then
+escalated by context:
 
 ```
-overall = 0.20 privacy + 0.30 injection + 0.20 safety
-        + 0.20 authorization + 0.10 context
+severity_floor  = max(privacy, injection, safety, authorization, fairness)
+blended         = 0.25 privacy + 0.25 injection + 0.15 safety
+                + 0.25 authorization + 0.10 fairness
+base_risk       = max(severity_floor, blended)
+overall_risk    = min(1.0, base_risk * (1.15 if critical_context else 1.0))
 ```
 
-It is capped at `1.0`. Policy rules can override it: for example an explicit
-authorization failure always blocks, even if the aggregated score is low.
-Async fairness, grounding, cost and performance assessments are recorded after
-the response and are not treated as real-time enforcement signals.
+A single maximal-confidence finding (e.g. a confirmed authorization denial)
+now sets the risk floor directly, instead of being diluted by unrelated
+clean detectors — a straight weighted average previously let a
+100%-confidence unauthorized-access case land around 0.46, which meant the
+risk-threshold HUMAN_REVIEW rules could almost never fire for the single
+most common violation shape in this system. Policy rules that check raw
+detector scores directly (rather than overall_risk) are unaffected either
+way — an explicit authorization failure or injection match still blocks
+regardless of the aggregate. Async fairness, grounding, cost and
+performance assessments are recorded after the response and are not
+treated as real-time enforcement signals.
 
 ## Operational transition
 

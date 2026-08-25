@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from backend.shared.config import settings
 from backend.shared.schemas import (
+    DecisionAction,
     FeedbackRequest,
     GovernanceDecision,
     GovernanceRequest,
@@ -29,6 +30,7 @@ from backend.audit.store import Database, build_audit_context, fingerprint
 from backend.gateway.auth import verify_api_key
 from backend.gateway.context_enrichment import enrich_context
 from backend.review.queue import ReviewQueue
+from backend.feedback.evaluator import FeedbackEvaluator
 from backend.shared.gpu_adapter import GPUAdapter
 from backend.shared import llm_simulator
 
@@ -41,15 +43,22 @@ from backend.decision.engine import make_decision, sanitize_response
 app = FastAPI(
     title="ControlPlane.ai",
     description="Enterprise AI governance control plane — observe, reason, act, learn.",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("controlplane.gateway")
 
 db = Database(settings.db_path)
-review_queue = ReviewQueue()
+review_queue = ReviewQueue(db=db)
+feedback_evaluator = FeedbackEvaluator()
 gpu = GPUAdapter()
+
+
+class ReviewResolution(BaseModel):
+    reviewer_id: str = "reviewer"
+    final_action: DecisionAction = "BLOCK"
+    notes: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +281,37 @@ async def feedback(payload: FeedbackRequest):
         payload.original_action == payload.final_action,
         payload.notes,
     )
-    return {"status": "stored"}
+    # FIX: FeedbackEvaluator existed (backend/feedback/evaluator.py) but was
+    # never imported or called anywhere -- this endpoint stored a bare
+    # correct/incorrect boolean and threw away the false_positive vs.
+    # false_negative classification the evaluator already knew how to make.
+    classification = feedback_evaluator.record_override(
+        request_id=payload.request_id,
+        original_action=payload.original_action,
+        final_action=payload.final_action,
+        notes=payload.notes,
+    )
+    return {"status": "stored", **classification}
+
+
+@app.get("/v1/reviews")
+async def list_pending_reviews(limit: int = 50):
+    return review_queue.list_pending(min(limit, 200))
+
+
+@app.post("/v1/reviews/{request_id}/resolve")
+async def resolve_review(request_id: str, payload: ReviewResolution):
+    if not review_queue.db.get_review(request_id):
+        raise HTTPException(status_code=404, detail="No pending review for this request_id")
+    return review_queue.resolve(
+        request_id=request_id,
+        final_action=payload.final_action,
+        reviewer_id=payload.reviewer_id,
+        notes=payload.notes,
+    )
 
 
 @app.get("/v1/gpu")
 async def gpu_status():
     return gpu.status()
+
