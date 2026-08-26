@@ -39,12 +39,14 @@ from backend.detectors import DETECTOR_REGISTRY, run_hot_path  # noqa: F401
 from backend.risk.engine import calculate_risk
 from backend.policy.engine import evaluate_policy, policy_engine
 from backend.decision.engine import make_decision, sanitize_response
+from backend.agents.router import router as agent_router
 
 app = FastAPI(
     title="ControlPlane.ai",
     description="Enterprise AI governance control plane — observe, reason, act, learn.",
     version="0.4.0",
 )
+app.include_router(agent_router)
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("controlplane.gateway")

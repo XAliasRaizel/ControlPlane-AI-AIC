@@ -1,0 +1,65 @@
+version: 1
+scope: agent_tools
+description: >
+  Governs which agent tool calls execute automatically, which need a
+  human sign-off, and which are refused outright. Conditions are
+  evaluated against the tool's raw args plus a few derived risk
+  factors computed in risk.py (see policy.py:_build_eval_context for
+  the full list of names available to a condition). Rules with
+  tool: "*" apply to every tool call regardless of which tool is
+  being invoked. Highest `priority` is evaluated first, so a stricter
+  rule can pre-empt a looser one that would otherwise also match.
+
+rules:
+  # --- issue_refund -----------------------------------------------------
+  - id: refund-hard-cap-block
+    tool: issue_refund
+    condition: "amount > 2000"
+    action: BLOCK
+    reason: "Refund exceeds the maximum single-transaction limit for agent-initiated refunds; route through the manual finance workflow instead"
+    priority: 100
+
+  - id: refund-manager-signoff
+    tool: issue_refund
+    condition: "amount > 500"
+    action: HUMAN_REVIEW
+    reason: "Refunds above $500 require manager sign-off before they execute"
+    priority: 90
+
+  # --- delete_record ------------------------------------------------------
+  - id: admin-delete-authorized
+    tool: delete_record
+    condition: "role == 'admin'"
+    action: ALLOW
+    reason: "Admins are authorized to delete records, including PII-flagged ones, as part of normal data-lifecycle operations"
+    priority: 120
+
+  - id: delete-record-intern-hard-block
+    tool: delete_record
+    condition: "record_contains_pii and role == 'intern'"
+    action: BLOCK
+    reason: "Interns may never delete PII-flagged records, even with a human in the loop"
+    priority: 110
+
+  - id: delete-customer-record-non-admin
+    tool: delete_record
+    condition: "record_contains_pii and role != 'admin'"
+    action: HUMAN_REVIEW
+    reason: "Deleting a record flagged as containing PII requires admin approval"
+    priority: 100
+
+  # --- send_email -----------------------------------------------------------
+  - id: email-external-pii-block
+    tool: send_email
+    condition: "is_external_recipient and contains_pii"
+    action: BLOCK
+    reason: "Refusing to send a message containing PII-pattern content to an external domain"
+    priority: 100
+
+  # --- applies to every tool -------------------------------------------------
+  - id: session-carryover-escalation
+    tool: "*"
+    condition: "session_risk > 0.6"
+    action: HUMAN_REVIEW
+    reason: "This session already carries elevated risk from earlier turns (e.g. a flagged multi-turn probe); escalating out of caution even though this specific call looks ordinary"
+    priority: 95
