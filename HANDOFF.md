@@ -77,41 +77,75 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
 
 ## 5. Progress checklist
 
-> **STATUS: COMPLETE** — every item below is done. `./.venv/Scripts/python.exe -m pytest -q`
-> → **30 passed** (12 new in `tests/test_model_backend.py`); all files `py_compile` clean.
+> **STATUS: PHASE 2 COMPLETE** — 39 tests passing. `./.venv/Scripts/python.exe -m pytest -q`
+> → **39 passed** (+3 fairness tests). All new files `py_compile` clean.
 
+### Phase 1 — Infrastructure layer (DONE)
 - [x] `ml/__init__.py` — lazy-import package doc.
-- [x] `ml/common.py` (247 lines) — `load_jsonl_records`, `grouped_split` (sklearn + pure-Python
-      fallback), `fit_temperature`, `apply_temperature`, `confusion_at_threshold`,
-      `select_threshold_for_fnr`. Compiles.
-- [x] `backend/shared/model_backend.py` — header + `CalibratedClassifier` + `GroundingScorer` +
-      module getters (`artifact_dir_for`, `get_detector_model`, `get_grounding_scorer`,
-      `consult`, `reset_cache`). Compiles.
-- [x] `ml/train_detector.py` — generalized trainer (injection/toxicity/fairness; LoRA optional;
-      group split; temperature calibration; threshold-for-FNR; saves model/ + calibration.json +
-      evaluation.json; runnable as `python -m ml.train_detector`).
-- [x] Detector wiring (guarded, ~2 lines each via `model_backend.consult`):
-      `backend/detectors/injection.py`, `backend/detectors/safety.py`, and the async
-      `GroundingEngineDetector` in `backend/detectors/async_analytics.py` (→ `get_grounding_scorer`).
-- [x] `backend/shared/gpu_adapter.py` — API-stable delegation to `get_detector_model("injection")`.
-- [x] `tests/test_model_backend.py` — fallback-returns-None, detector parity, `ml.common` unit tests,
-      and a `sys.modules` assertion that importing the seam does not import torch.
-- [x] `ml/requirements-ml.txt` — add `peft`, `sentencepiece`.
-- [x] `ml/README.md` — document 4-detector mapping (+ PII/Presidio follow-up), trainer usage,
-      calibration/threshold, `--lora`, the env-var seam, observe-first rollout warning.
-- [x] `ml/artifacts/.gitkeep`.
+- [x] `ml/common.py` — `load_jsonl_records`, `grouped_split`, `fit_temperature`,
+      `apply_temperature`, `confusion_at_threshold`, `select_threshold_for_fnr`.
+- [x] `backend/shared/model_backend.py` — `CalibratedClassifier`, `GroundingScorer`,
+      `consult`, `get_detector_model`, `get_grounding_scorer`, `reset_cache`.
+- [x] `ml/train_detector.py` — generalized LoRA trainer (injection/toxicity/fairness;
+      group split; temperature calibration; threshold-for-FNR; saves artifacts).
+- [x] Detector wiring — `injection.py`, `safety.py`, `async_analytics.py` (grounding).
+- [x] `backend/shared/gpu_adapter.py` — API-stable delegation.
+- [x] `conftest.py` — CI sys.path fix (36→39 tests).
+- [x] `ml/requirements-ml.txt` — includes peft, sentencepiece.
+- [x] `ml/README.md` — full 4-detector plan documented.
+
+### Phase 2 — Dataset prep + evaluation scripts (DONE)
+- [x] `data/scripts/prepare_injection_data.py` — downloads deepset/prompt-injections +
+      neuralchemy, maps to `{text, label, group_id}` JSONL, dedupes + balances.
+- [x] `data/scripts/prepare_toxicity_data.py` — Jigsaw (multi-label→binary) + ToxiGen
+      (implicit hate). Dedupes + balances.
+- [x] `data/scripts/prepare_fairness_data.py` — HateXplain (majority-vote labels,
+      demographic group_ids, rationale spans preserved).
+- [x] `ml/scripts/download_pretrained.py` — downloads any HF seq-classifier + writes
+      `calibration.json` → instant Track A deployment.
+- [x] `ml/scripts/evaluate_model.py` — confusion, FNR/FPR/F1, ROC-AUC, AUPRC,
+      threshold sweep, per-group breakdown; reuses `ml/common` for consistency.
+- [x] `ml/scripts/compare_detectors.py` — side-by-side regex vs model comparison.
+- [x] `ml/notebooks/train_detectors.py` — Colab/Kaggle orchestrator for all 3 tasks.
+- [x] `backend/detectors/async_analytics.py` — `FairnessEngineDetector` wired with
+      `consult("fairness", ...)` (identical guard to injection/safety).
+- [x] `tests/test_model_backend.py` — 3 new fairness tests (parity + fires + no-lower).
+- [x] `.gitignore` — ml/artifacts/, data/raw/, data/*.jsonl excluded.
+
+### Phase 3 — Actual training + deployment (NEXT)
+
+- [ ] **Track A (no training — instant):** Run `download_pretrained.py` for:
+      - Injection: `protectai/deberta-v3-base-prompt-injection-v2`
+      - Safety:    `s-nlp/roberta_toxicity_classifier`
+      - Grounding: `cross-encoder/nli-deberta-v3-base`
+      Then set env vars and validate with `evaluate_model.py`.
+- [ ] **Track B (fine-tune — Colab/Kaggle T4):**
+      1. Run the 3 `data/scripts/prepare_*.py` scripts (needs `datasets` installed).
+      2. Upload JSONL files to Kaggle/Colab.
+      3. Run `ml/notebooks/train_detectors.py --task all`.
+      4. Download artifacts and place in `ml/artifacts/`.
+      5. Compare pretrained vs fine-tuned with `compare_detectors.py`.
 
 ---
 
 ## 6. Env vars (the seam)
 
 | Var | Consumed by | Effect when unset (default) |
-|-----|-------------|-----------------------------|
+|-----|-------------|------------------------------|
 | `CONTROLPLANE_MODEL_INJECTION` | `injection` detector, `gpu_adapter` | regex-only, unchanged |
 | `CONTROLPLANE_MODEL_SAFETY`    | `safety` detector | regex-only, unchanged |
+| `CONTROLPLANE_MODEL_FAIRNESS`  | `bias_fairness_engine` detector | keyword-only, unchanged |
 | `CONTROLPLANE_MODEL_GROUNDING` | async `GroundingEngineDetector` | token-overlap heuristic |
 
-Each points at a `<artifact>/model` dir with a sibling/nested `calibration.json`.
+**Track A model IDs** (pretrained, no training needed):
+| Task | HF Model ID |
+|------|-------------|
+| injection | `protectai/deberta-v3-base-prompt-injection-v2` |
+| safety    | `s-nlp/roberta_toxicity_classifier` |
+| grounding | `cross-encoder/nli-deberta-v3-base` |
+| fairness  | fine-tune on HateXplain (Track B) |
+
+Each env var points at a `<artifact>/model` dir with a sibling `calibration.json`.
 
 ---
 

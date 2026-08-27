@@ -213,3 +213,58 @@ def test_gpu_adapter_score_delegates_to_seam(monkeypatch):
 def test_gpu_adapter_score_defaults_zero_without_model():
     # No monkeypatch + env unset (autouse fixture) => unchanged 0.0 behavior.
     assert GPUAdapter().score_with_model("some prompt") == 0.0
+
+
+# --- Fairness detector parity -----------------------------------------------
+from backend.detectors.async_analytics import FairnessEngineDetector  # noqa: E402
+
+
+def test_fairness_detector_unchanged_without_model():
+    # Without CONTROLPLANE_MODEL_FAIRNESS set, the keyword-only path must be
+    # byte-for-byte identical to before the consult() wiring was added.
+    req_clean = GovernanceRequest(
+        user_id="u", application_id="a",
+        prompt="Please summarize the quarterly results.",
+    )
+    result = asyncio.run(FairnessEngineDetector().analyze(req_clean, {}))
+    assert result.label == "LOW"
+    assert result.score == pytest.approx(0.0)
+    assert all(not e.startswith("fairness-model") for e in result.evidence)
+
+    req_bias = GovernanceRequest(
+        user_id="u", application_id="a",
+        prompt="He was rejected because of his religion and ethnicity.",
+    )
+    result = asyncio.run(FairnessEngineDetector().analyze(req_bias, {}))
+    assert result.label == "MEDIUM"
+    assert result.score > 0.0
+    assert any("religion" in e or "ethnicity" in e for e in result.evidence)
+    assert all(not e.startswith("fairness-model") for e in result.evidence)
+
+
+def test_fairness_escalates_when_model_fires(monkeypatch):
+    monkeypatch.setattr("backend.detectors.async_analytics.consult",
+                        lambda task, text: _fake_pred(0.85, True, 0.90))
+    req = GovernanceRequest(
+        user_id="u", application_id="a",
+        prompt="The candidate was a perfect fit for the role.",  # no keyword hit
+    )
+    result = asyncio.run(FairnessEngineDetector().analyze(req, {}))
+    assert result.label == "BIASED"
+    assert result.score == pytest.approx(0.85)
+    assert "fairness-model:0.85" in result.evidence
+
+
+def test_fairness_model_never_lowers_keyword_signal(monkeypatch):
+    # Regex fires at 0.4; a non-firing model with score 0.1 must not weaken it.
+    monkeypatch.setattr("backend.detectors.async_analytics.consult",
+                        lambda task, text: _fake_pred(0.10, False))
+    req = GovernanceRequest(
+        user_id="u", application_id="a",
+        prompt="She was passed over because of her gender and age.",
+    )
+    result = asyncio.run(FairnessEngineDetector().analyze(req, {}))
+    assert result.label == "MEDIUM"          # keyword verdict preserved
+    assert result.score >= 0.4               # keyword score not lowered
+    assert "fairness-model:0.10" in result.evidence
+

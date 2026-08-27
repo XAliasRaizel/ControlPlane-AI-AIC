@@ -29,7 +29,7 @@ import re
 
 from backend.detectors.base import BaseDetector, register
 from backend.shared.schemas import DetectorResult, GovernanceRequest
-from backend.shared.model_backend import get_grounding_scorer
+from backend.shared.model_backend import consult, get_grounding_scorer
 
 
 @register
@@ -105,13 +105,31 @@ class FairnessEngineDetector(BaseDetector):
         text = f"{request.prompt}\n{request.response or ''}".lower()
         hits = [x for x in self._TERMS if x in text]
         score = round(min(1.0, 0.40 * len(hits)), 3)
+        label = "MEDIUM" if hits else "LOW"
+        confidence = 0.7 if hits else 0.8
+        evidence = ([f"Demographic markers: {', '.join(hits)}"] if hits
+                    else ["Zero demographic bias or disparate impact detected"])
+
+        # Optional, default-OFF learned consult. Inert unless
+        # CONTROLPLANE_MODEL_FAIRNESS points at a calibrated HateXplain artifact.
+        # Model risk only raises the score / promotes the label; it never lowers
+        # the deterministic keyword signal.
+        raw_text = f"{request.prompt}\n{request.response or ''}".strip()
+        prediction = consult("fairness", raw_text)
+        if prediction is not None:
+            model_score = prediction["score"]
+            score = max(score, model_score)
+            if prediction["fires"]:
+                label = "BIASED"
+                confidence = max(confidence, prediction["confidence"])
+            evidence = list(evidence) + [f"fairness-model:{model_score:.2f}"]
+
         return DetectorResult(
             detector_name=self.name,
             score=score,
-            label="MEDIUM" if hits else "LOW",
-            confidence=0.7 if hits else 0.8,
-            evidence=[f"Demographic markers: {', '.join(hits)}"] if hits
-            else ["Zero demographic bias or disparate impact detected"],
+            label=label,
+            confidence=confidence,
+            evidence=evidence,
         )
 
 
