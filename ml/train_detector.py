@@ -87,7 +87,7 @@ def _maybe_wrap_lora(model, enable: bool):
     config = LoraConfig(
         task_type=TaskType.SEQ_CLS,
         r=8, lora_alpha=16, lora_dropout=0.05,
-        target_modules=["query", "key", "value"],
+        target_modules=["query", "key", "value", "query_proj", "key_proj", "value_proj"],
     )
     return get_peft_model(model, config), True
 

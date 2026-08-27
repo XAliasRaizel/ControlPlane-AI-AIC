@@ -87,10 +87,18 @@ def grouped_split(
 
 
 def _sklearn_grouped_split(records, test_size, valid_size, seed):
-    from sklearn.model_selection import GroupShuffleSplit
+    from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
     labels = [r["label"] for r in records]
     groups = [r["group_id"] for r in records]
+    
+    # If there are not enough groups to split (e.g. only 2 groups), fallback to standard split
+    if len(set(groups)) < 3:
+        train_valid, test = train_test_split(records, test_size=test_size, random_state=seed, stratify=labels)
+        tv_labels = [r["label"] for r in train_valid]
+        train, valid = train_test_split(train_valid, test_size=valid_size, random_state=seed+1, stratify=tv_labels)
+        return train, valid, test
+
     outer = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
     train_valid_idx, test_idx = next(outer.split(records, labels, groups))
     train_valid = [records[i] for i in train_valid_idx]

@@ -167,7 +167,7 @@ def main() -> None:
                         positive_index = idx
                         print(f"[INFO] Auto-detected entailment index: {positive_index}")
                     break
-        print(f"[INFO] Using positive_index={positive_index} → '{id2label.get(positive_index, '?')}'")
+        print(f"[INFO] Using positive_index={positive_index} -> '{id2label.get(positive_index, '?')}'")
 
     print("[INFO] Saving tokenizer and model...")
     tokenizer.save_pretrained(str(model_dir))

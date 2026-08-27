@@ -61,12 +61,12 @@ def load_jigsaw(max_rows: int = 10000) -> list[dict]:
     from datasets import load_dataset
     print("[INFO] Loading google/jigsaw_toxicity_pred (train split)...")
     try:
-        ds = load_dataset("google/jigsaw_toxicity_pred", split="train")
+        ds = load_dataset("google/jigsaw_toxicity_pred", split="train", trust_remote_code=True)
     except Exception as e:
         print(f"  [WARN] jigsaw_toxicity_pred unavailable: {e}")
         print("  Trying alternative: jigsaw-unintended-bias...")
         try:
-            ds = load_dataset("jigsaw_unintended_bias", split="train")
+            ds = load_dataset("jigsaw_unintended_bias", split="train", trust_remote_code=True)
         except Exception as e2:
             print(f"  [WARN] Both Jigsaw datasets unavailable: {e2} — skipping.")
             return []
@@ -86,7 +86,7 @@ def load_jigsaw(max_rows: int = 10000) -> list[dict]:
 
     toxic_n = sum(1 for r in records if r["label"] == 1)
     safe_n = len(records) - toxic_n
-    print(f"  → {len(records)} rows from jigsaw ({toxic_n} toxic, {safe_n} safe)")
+    print(f"  -> {len(records)} rows from jigsaw ({toxic_n} toxic, {safe_n} safe)")
     return records
 
 
@@ -94,10 +94,10 @@ def load_toxigen(max_rows: int = 5000) -> list[dict]:
     from datasets import load_dataset
     print("[INFO] Loading toxigen/toxigen-data...")
     try:
-        ds = load_dataset("toxigen/toxigen-data", name="train", split="train")
+        ds = load_dataset("toxigen/toxigen-data", name="train", split="train", trust_remote_code=True)
     except Exception:
         try:
-            ds = load_dataset("toxigen/toxigen-data", split="train")
+            ds = load_dataset("toxigen/toxigen-data", split="train", trust_remote_code=True)
         except Exception as e:
             print(f"  [WARN] toxigen/toxigen-data unavailable: {e} — skipping.")
             return []
@@ -122,7 +122,7 @@ def load_toxigen(max_rows: int = 5000) -> list[dict]:
 
     toxic_n = sum(1 for r in records if r["label"] == 1)
     safe_n = len(records) - toxic_n
-    print(f"  → {len(records)} rows from toxigen ({toxic_n} toxic, {safe_n} safe)")
+    print(f"  -> {len(records)} rows from toxigen ({toxic_n} toxic, {safe_n} safe)")
     return records
 
 
@@ -144,7 +144,7 @@ def dedupe_and_balance(records: list[dict], max_per_class: int, seed: int = 42) 
 
     target = min(max_per_class, min(len(by_label[0]), len(by_label[1])))
     balanced = by_label[0][:target] + by_label[1][:target]
-    print(f"[INFO] After dedup+balance: {len(by_label[0])} safe, {len(by_label[1])} toxic → {len(balanced)} total")
+    print(f"[INFO] After dedup+balance: {len(by_label[0])} safe, {len(by_label[1])} toxic -> {len(balanced)} total")
     return balanced
 
 

@@ -94,7 +94,7 @@ def load_hatexplain(max_rows: int = 10000) -> list[dict]:
     from datasets import load_dataset
     print(f"[INFO] Loading {HATEXPLAIN_DATASET}...")
     try:
-        ds = load_dataset(HATEXPLAIN_DATASET, split="train")
+        ds = load_dataset(HATEXPLAIN_DATASET, split="train", trust_remote_code=True)
     except Exception as e:
         print(f"  [WARN] Could not load hatexplain: {e} — skipping.")
         return []
@@ -138,7 +138,7 @@ def load_hatexplain(max_rows: int = 10000) -> list[dict]:
 
     hate_n = sum(1 for r in records if r["label"] == 1)
     safe_n = len(records) - hate_n
-    print(f"  → {len(records)} rows from hatexplain ({hate_n} hate/offensive, {safe_n} normal)")
+    print(f"  -> {len(records)} rows from hatexplain ({hate_n} hate/offensive, {safe_n} normal)")
     return records
 
 
@@ -160,7 +160,7 @@ def dedupe_and_balance(records: list[dict], max_per_class: int, seed: int = 42) 
 
     target = min(max_per_class, min(len(by_label[0]), len(by_label[1])))
     balanced = by_label[0][:target] + by_label[1][:target]
-    print(f"[INFO] After dedup+balance: {len(by_label[0])} normal, {len(by_label[1])} hate → {len(balanced)} total")
+    print(f"[INFO] After dedup+balance: {len(by_label[0])} normal, {len(by_label[1])} hate -> {len(balanced)} total")
     return balanced
 
 

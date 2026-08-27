@@ -87,7 +87,7 @@ def load_deepset() -> list[dict]:
             continue
         group_id = _injection_group(text, None) if label == 1 else _safe_group(text)
         records.append({"text": text, "label": label, "group_id": group_id, "_source": "deepset"})
-    print(f"  → {len(records)} rows from deepset/prompt-injections")
+    print(f"  -> {len(records)} rows from deepset/prompt-injections")
     return records
 
 
@@ -109,7 +109,7 @@ def load_neuralchemy() -> list[dict]:
             continue
         group_id = _injection_group(text, category) if label == 1 else _safe_group(text)
         records.append({"text": text, "label": label, "group_id": group_id, "_source": "neuralchemy"})
-    print(f"  → {len(records)} rows from neuralchemy/Prompt-injection-dataset")
+    print(f"  -> {len(records)} rows from neuralchemy/Prompt-injection-dataset")
     return records
 
 
@@ -128,7 +128,7 @@ def dedupe_and_balance(records: list[dict], max_per_class: int = 5000) -> list[d
     # Balance and cap
     target = min(max_per_class, min(len(by_label[0]), len(by_label[1])))
     balanced = by_label[0][:target] + by_label[1][:target]
-    print(f"[INFO] After dedup+balance: {len(by_label[0])} safe, {len(by_label[1])} injection → {len(balanced)} total")
+    print(f"[INFO] After dedup+balance: {len(by_label[0])} safe, {len(by_label[1])} injection -> {len(balanced)} total")
     return balanced
 
 

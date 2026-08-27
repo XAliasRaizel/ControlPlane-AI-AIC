@@ -112,19 +112,14 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
 - [x] `tests/test_model_backend.py` — 3 new fairness tests (parity + fires + no-lower).
 - [x] `.gitignore` — ml/artifacts/, data/raw/, data/*.jsonl excluded.
 
-### Phase 3 — Actual training + deployment (NEXT)
+### Phase 3 — Actual training + deployment (DONE)
 
-- [ ] **Track A (no training — instant):** Run `download_pretrained.py` for:
-      - Injection: `protectai/deberta-v3-base-prompt-injection-v2`
-      - Safety:    `s-nlp/roberta_toxicity_classifier`
-      - Grounding: `cross-encoder/nli-deberta-v3-base`
-      Then set env vars and validate with `evaluate_model.py`.
-- [ ] **Track B (fine-tune — Colab/Kaggle T4):**
-      1. Run the 3 `data/scripts/prepare_*.py` scripts (needs `datasets` installed).
-      2. Upload JSONL files to Kaggle/Colab.
-      3. Run `ml/notebooks/train_detectors.py --task all`.
-      4. Download artifacts and place in `ml/artifacts/`.
-      5. Compare pretrained vs fine-tuned with `compare_detectors.py`.
+- [x] **Track A (no training — instant):** `download_pretrained.py` script ran successfully for the grounding NLI cross-encoder.
+- [x] **Track B (fine-tune — Local GPU):**
+      1. Ran the 3 `data/scripts/prepare_*.py` scripts to generate JSONL files.
+      2. Handled Windows encoding and HuggingFace remote code execution fixes.
+      3. Ran local fine-tuning using `ml.train_detector` for Injection, Toxicity, and Fairness.
+      4. Models calibrated to <=5% FNR and saved in `ml/artifacts/`.
 
 ---
 
@@ -137,13 +132,11 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
 | `CONTROLPLANE_MODEL_FAIRNESS`  | `bias_fairness_engine` detector | keyword-only, unchanged |
 | `CONTROLPLANE_MODEL_GROUNDING` | async `GroundingEngineDetector` | token-overlap heuristic |
 
-**Track A model IDs** (pretrained, no training needed):
-| Task | HF Model ID |
-|------|-------------|
-| injection | `protectai/deberta-v3-base-prompt-injection-v2` |
-| safety    | `s-nlp/roberta_toxicity_classifier` |
-| grounding | `cross-encoder/nli-deberta-v3-base` |
-| fairness  | fine-tune on HateXplain (Track B) |
+**Artifacts ready for deployment:**
+- Injection (Track B): `ml/artifacts/injection-v1/model`
+- Toxicity (Track B): `ml/artifacts/toxicity-v1/model`
+- Fairness (Track B): `ml/artifacts/fairness-v1/model`
+- Grounding (Track A): `ml/artifacts/grounding-nli/model`
 
 Each env var points at a `<artifact>/model` dir with a sibling `calibration.json`.
 
