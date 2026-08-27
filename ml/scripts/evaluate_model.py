@@ -233,7 +233,7 @@ def main() -> None:
     print(f"  Recall:     {metrics['recall']:.4f}")
     print(f"  F1:         {metrics['f1']:.4f}")
     print(f"  FPR:        {metrics['fpr']:.4f}  (false positives / all negatives)")
-    print(f"  FNR:        {metrics['fnr']:.4f}  (false negatives / all positives) ← KEY")
+    print(f"  FNR:        {metrics['fnr']:.4f}  (false negatives / all positives) <- KEY")
     if roc_auc is not None:
         print(f"  ROC-AUC:    {roc_auc:.4f}")
     if auprc is not None:

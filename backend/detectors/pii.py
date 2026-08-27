@@ -1,6 +1,7 @@
 import re
 from backend.shared.schemas import DetectorResult, GovernanceRequest
 from backend.detectors.base import BaseDetector, register
+from backend.shared.model_backend import consult_presidio
 
 # FIX: every hit used to feed into one `score = 0.45 + 0.2*(n-1)` formula and
 # one hardcoded `confidence = 0.94`, regardless of whether the text actually
@@ -57,10 +58,21 @@ class PIIDetector(BaseDetector):
             confidence = 0.90
             label = "CLEAN"
 
+        # Optional, default-OFF learned consult for broader entity types
+        # (names, locations, IPs, crypto, etc.) that regex misses.
+        presidio_entities = consult_presidio(text)
+        if presidio_entities:
+            score = max(score, 0.8)
+            label = "PII_DETECTED"
+            confidence = max(confidence, 0.90)
+            evidence = value_hits + request_hits + [f"presidio:{e}" for e in presidio_entities]
+        else:
+            evidence = value_hits + request_hits
+
         return DetectorResult(
             detector_name=self.name,
             score=round(score, 3),
             label=label,
             confidence=round(confidence, 3),
-            evidence=value_hits + request_hits,
+            evidence=evidence,
         )

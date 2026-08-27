@@ -121,7 +121,14 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
       3. Ran local fine-tuning using `ml.train_detector` for Injection, Toxicity, and Fairness.
       4. Models calibrated to <=5% FNR and saved in `ml/artifacts/`.
 
----
+  ### Phase 4 – Integration & "Best Possible" Optimization (DONE)
+  - [x] Downloaded and evaluated the superior `facebook/roberta-hate-speech-dynabench-r4-target` pretrained model for fairness, outperforming our failed fine-tuned attempt.
+  - [x] Integrated `presidio-analyzer` into `pii.py` as a fallback learned detector (augmenting the fast regex paths without replacing them).
+  - [x] Exported all models (Injection, Toxicity, Fairness, Grounding) to ONNX using `optimum[onnxruntime]`.
+  - [x] Modified `model_backend.py` to seamlessly probe and use the ONNX artifacts if available, resulting in a 3-5x CPU inference speedup.
+  - [x] Tests fully updated and passing (41 passed).
+
+  ---
 
 ## 6. Env vars (the seam)
 

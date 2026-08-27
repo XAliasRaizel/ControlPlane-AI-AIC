@@ -85,21 +85,43 @@ class CalibratedClassifier:
         except Exception:
             return None
 
+    def _ensure_loaded(self):
+        if self._model is not None:
+            return
+
+        calib_path = _calibration_path(self.artifact_dir)
+        if calib_path:
+            with open(calib_path, "r", encoding="utf-8") as f:
+                self.calibration = json.load(f)
+
+        onnx_dir = self.artifact_dir / "model_onnx"
+        model_dir = self.artifact_dir / "model"
+        
+        import torch
+        self._torch = torch
+        
+        # Try ONNX first if calibration says it's exported and the directory exists
+        if self.calibration.get("onnx", False) and onnx_dir.exists():
+            try:
+                from optimum.onnxruntime import ORTModelForSequenceClassification
+                from transformers import AutoTokenizer
+                self._model = ORTModelForSequenceClassification.from_pretrained(str(onnx_dir))
+                self._tokenizer = AutoTokenizer.from_pretrained(str(onnx_dir))
+                return
+            except ImportError:
+                pass # fallback to pytorch if optimum not installed
+
+        # PyTorch fallback
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        self._tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+        self._model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
+        self._model.eval()
+
     def _ensure_model(self) -> bool:
         if self._model is not None:
             return True
         try:
-            import torch
-            from transformers import (AutoModelForSequenceClassification,
-                                       AutoTokenizer)
-        except Exception:
-            return False
-        try:
-            self._torch = torch
-            self._tokenizer = AutoTokenizer.from_pretrained(str(self.artifact_dir))
-            self._model = AutoModelForSequenceClassification.from_pretrained(
-                str(self.artifact_dir))
-            self._model.eval()
+            self._ensure_loaded()
             return True
         except Exception:
             self._model = None
@@ -246,6 +268,42 @@ def consult(task: str, text: str) -> Optional[dict]:
         return clf.predict(text)
     except Exception:
         return None
+
+
+def consult_presidio(text: str) -> list[str]:
+    """Guarded convenience wrapper for Presidio PII detection.
+    
+    Returns a list of detected entity types (e.g., ['EMAIL_ADDRESS', 'PHONE_NUMBER'])
+    if presidio is installed. Returns [] if it is not installed or errors out,
+    so the caller's deterministic regex logic continues unaffected.
+    """
+    key = "presidio::analyzer"
+    with _lock:
+        analyzer = _cache.get(key)
+        
+    if analyzer is None:
+        try:
+            from presidio_analyzer import AnalyzerEngine
+            analyzer = AnalyzerEngine()
+            with _lock:
+                _cache[key] = analyzer
+        except ImportError:
+            return []
+        except Exception:
+            return []
+            
+    try:
+        results = analyzer.analyze(text=text, language="en")
+        # Deduplicate entity types while preserving order somewhat
+        seen = set()
+        unique = []
+        for r in results:
+            if r.entity_type not in seen:
+                seen.add(r.entity_type)
+                unique.append(r.entity_type)
+        return unique
+    except Exception:
+        return []
 
 
 def artifact_dir_for(task: str) -> Optional[str]:
