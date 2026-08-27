@@ -89,6 +89,25 @@ resolve to the deterministic fallback.
 $env:CONTROLPLANE_MODEL_INJECTION = "ml/artifacts/injection-v0/model"
 ```
 
+### Using a downloaded (non-trainer) model
+
+You can also point an env var at a model you did not train here — e.g. a
+pretrained HuggingFace baseline for a quick smoke test. Because such a model was
+not produced by `train_detector.py`, add a `calibration.json` in its directory
+so the seam interprets it correctly. Copy `ml/calibration.example.json` and edit:
+
+- **`positive_index`** — the logit index of the *risky* class (injection / toxic
+  / contradiction). Check the model card or `config.json` `id2label`; if the risky
+  class is index 0, set this to 0 or the score comes out inverted.
+- **`threshold`** — fire/no-fire cut on the calibrated probability (start at 0.5).
+- **`positive_label`** — the string surfaced in `DetectorResult.label`.
+- **`temperature`** — leave at 1.0 unless you calibrate.
+
+```powershell
+copy ml\calibration.example.json models\injection\calibration.json
+$env:CONTROLPLANE_MODEL_INJECTION = "models/injection"
+```
+
 A model can only **raise** a detector's risk or promote its label; it never
 lowers deterministic signal. **Staged rollout:** deploy observe-only first
 (inspect the `model:<task>:<score>` evidence in the audit trail), confirm FPR/FNR
