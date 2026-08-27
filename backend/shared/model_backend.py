@@ -17,6 +17,7 @@ Artifact layout produced by ml/train_detector.py:
 """
 from __future__ import annotations
 
+import functools
 import json
 import math
 import os
@@ -94,13 +95,25 @@ class CalibratedClassifier:
             with open(calib_path, "r", encoding="utf-8") as f:
                 self.calibration = json.load(f)
 
+        quantized_onnx_dir = self.artifact_dir / "model_quantized_onnx"
         onnx_dir = self.artifact_dir / "model_onnx"
         model_dir = self.artifact_dir / "model"
         
         import torch
         self._torch = torch
         
-        # Try ONNX first if calibration says it's exported and the directory exists
+        # Try INT8 Quantized ONNX first
+        if self.calibration.get("quantized_onnx", False) and quantized_onnx_dir.exists():
+            try:
+                from optimum.onnxruntime import ORTModelForSequenceClassification
+                from transformers import AutoTokenizer
+                self._model = ORTModelForSequenceClassification.from_pretrained(str(quantized_onnx_dir))
+                self._tokenizer = AutoTokenizer.from_pretrained(str(quantized_onnx_dir))
+                return
+            except ImportError:
+                pass # fallback to fp32 onnx or pytorch
+
+        # Try FP32 ONNX second
         if self.calibration.get("onnx", False) and onnx_dir.exists():
             try:
                 from optimum.onnxruntime import ORTModelForSequenceClassification
@@ -248,11 +261,20 @@ class GroundingScorer:
         }
 
 
+def reset_cache() -> None:
+    """Clear all lazy-loaded models and caches (e.g. for testing or hot-reloading)."""
+    with _lock:
+        _cache.clear()
+    consult.cache_clear()
+    consult_presidio.cache_clear()
+
+
 # ---------------------------------------------------------------------------
 # Module-level API used by detectors. Everything here is cached and thread-safe
 # and NEVER raises: an unset env var, a missing artifact, or an unavailable ML
 # stack all resolve to None, so the deterministic pipeline is unaffected.
 # ---------------------------------------------------------------------------
+@functools.lru_cache(maxsize=1000)
 def consult(task: str, text: str) -> Optional[dict]:
     """Guarded convenience wrapper for detectors.
 
@@ -270,6 +292,7 @@ def consult(task: str, text: str) -> Optional[dict]:
         return None
 
 
+@functools.lru_cache(maxsize=1000)
 def consult_presidio(text: str) -> list[str]:
     """Guarded convenience wrapper for Presidio PII detection.
     

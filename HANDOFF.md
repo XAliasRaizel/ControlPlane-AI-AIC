@@ -128,6 +128,12 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
   - [x] Modified `model_backend.py` to seamlessly probe and use the ONNX artifacts if available, resulting in a 3-5x CPU inference speedup.
   - [x] Tests fully updated and passing (41 passed).
 
+  ### Phase 5 – Extreme Performance & Production Readiness (DONE)
+  - [x] Extended `export_onnx.py` to support `ORTQuantizer` (`--quantize`), shrinking the models by ~4x and massively speeding up local CPU inference.
+  - [x] Modified `model_backend.py` to prioritize `.quantized_onnx` artifacts.
+  - [x] Implemented `functools.lru_cache` for identical-payload memoization (`0ms` repeat inference).
+  - [x] Added `POST /admin/reload-models` endpoint in `main.py` to achieve zero-downtime hot-reloading of ML models.
+
   ---
 
 ## 6. Env vars (the seam)

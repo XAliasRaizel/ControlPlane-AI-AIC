@@ -55,6 +55,14 @@ feedback_evaluator = FeedbackEvaluator()
 gpu = GPUAdapter()
 
 
+@app.post("/admin/reload-models", tags=["admin"])
+async def reload_models():
+    """Hot-reload all ML models and clear caches for zero-downtime updates."""
+    from backend.shared.model_backend import reset_cache
+    reset_cache()
+    logger.info("Model cache cleared via /admin/reload-models")
+    return {"status": "ok", "message": "Model cache cleared. Models will be lazily reloaded on next request."}
+
 class ReviewResolution(BaseModel):
     reviewer_id: str = "reviewer"
     final_action: DecisionAction = "BLOCK"
