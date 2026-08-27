@@ -127,3 +127,43 @@ Expectations: full suite stays green; the seam returns `None`/fallback everywher
 env unset); `injection`/`safety` scores + labels are identical to pre-change when no
 `CONTROLPLANE_MODEL_*` is set.
 
+---
+
+## 8. CI failure — RESOLVED ✅ (commit `f6c8137`, pushed `tuning`)
+
+> **STATUS: DONE.** The learned-detector layer work (sections 1-7) was already done &
+> pushed (`ca4a9ac`). The CI fix is now also done and pushed (`f6c8137`). The
+> `test / python-tests` job on the `tuning` branch should go green on the next run.
+
+### Root cause (confirmed)
+CI runs the **bare `pytest` console script**, which does **not** insert cwd onto
+`sys.path`. With no `conftest.py` / `tests/__init__.py` / `pyproject.toml` at the
+root and `backend` not pip-installed, every test file fails at collection:
+```
+ModuleNotFoundError: No module named 'backend'
+```
+`python -m pytest` masked this locally because `-m` does add cwd to `sys.path`.
+
+### Why main was GREEN despite the same workflow
+`origin/main` commit `9cf57fb` added `tests/test_agent_governance.py`, which contains:
+```python
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+```
+That insert runs during collection and accidentally fixes `sys.path` for every
+subsequent test file — a side-effect, not a deliberate fix.
+
+### Fix applied
+Added **`conftest.py`** at the repo root (10 comment lines, no executable code).
+pytest's rootdir detection picks up this file and automatically prepends the repo root
+to `sys.path` before collection begins — the standard, documented mechanism.
+
+### Verification
+```
+.venv\Scripts\pytest.exe -q          # bare console script (==what CI runs)
+→ 36 passed in 1.08s                 # GREEN
+```
+
+### Temp artifacts from the investigation (all UNTRACKED — safe to delete)
+`.ci_venv/`, `.ci_req.txt`, `.ci_runs.json`, `.ci_jobs.json`, `.ci_log.txt`,
+`.pbs.json`, `.ci_repro.sh`, `.ci_repro311.sh`.
+WSL home (if applicable): `~/ccrepro`, `~/ccrepro311`.
