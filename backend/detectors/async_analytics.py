@@ -29,6 +29,7 @@ import re
 
 from backend.detectors.base import BaseDetector, register
 from backend.shared.schemas import DetectorResult, GovernanceRequest
+from backend.shared.model_backend import get_grounding_scorer
 
 
 @register
@@ -121,6 +122,25 @@ class GroundingEngineDetector(BaseDetector):
 
     async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
         if request.retrieved_context and request.response:
+            # Optional, default-OFF NLI groundedness. Inert unless
+            # CONTROLPLANE_MODEL_GROUNDING points at an entailment artifact;
+            # otherwise fall through to the token-overlap heuristic below.
+            scorer = get_grounding_scorer()
+            if scorer is not None:
+                grounded = scorer.groundedness(request.response, request.retrieved_context)
+                if grounded is not None:
+                    risk = grounded["risk"]
+                    return DetectorResult(
+                        detector_name=self.name,
+                        score=round(risk, 3),
+                        label="HIGH" if risk > 0.65 else "LOW",
+                        confidence=0.85,
+                        evidence=[
+                            f"NLI groundedness: weakest per-claim entailment "
+                            f"{grounded['weakest_entailment']:.2f} across "
+                            f"{len(grounded['claims'])} claim(s)"
+                        ],
+                    )
             response_words = set(request.response.lower().split())
             doc_words = set(" ".join(request.retrieved_context).lower().split())
             overlap = len(response_words & doc_words) / max(1, len(response_words))

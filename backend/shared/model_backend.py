@@ -226,6 +226,28 @@ class GroundingScorer:
         }
 
 
+# ---------------------------------------------------------------------------
+# Module-level API used by detectors. Everything here is cached and thread-safe
+# and NEVER raises: an unset env var, a missing artifact, or an unavailable ML
+# stack all resolve to None, so the deterministic pipeline is unaffected.
+# ---------------------------------------------------------------------------
+def consult(task: str, text: str) -> Optional[dict]:
+    """Guarded convenience wrapper for detectors.
+
+    Returns the calibrated predict() dict (score/fires/confidence/label/
+    threshold) when a model is configured and usable, otherwise None. Swallows
+    every error so a detector can call this inline without its own try/except
+    and always fall back to its deterministic result.
+    """
+    try:
+        clf = get_detector_model(task)
+        if clf is None:
+            return None
+        return clf.predict(text)
+    except Exception:
+        return None
+
+
 def artifact_dir_for(task: str) -> Optional[str]:
     """Return the configured artifact directory for a task, or None.
 
