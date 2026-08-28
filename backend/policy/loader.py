@@ -25,7 +25,8 @@ class PolicyLoader:
                 policy = yaml.safe_load(f) or {}
                 
             # Skip specialized agent tool policies (loaded by backend.agents.policy)
-            if policy.get("scope") == "agent_tools":
+            # and hallucination/bias signal policies (different rule schema)
+            if policy.get("scope") in ("agent_tools", "hallucination_bias"):
                 continue
 
             if not isinstance(policy, dict) or not isinstance(policy.get("rules"), list):
