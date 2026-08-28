@@ -115,30 +115,30 @@ build and the weakest fix, and it would be easy to accidentally ship only the we
 ## 3. Progress checklist
 
 ### Phase 6a — Instrument before changing anything (DO FIRST)
-- [ ] Measure current fast-lane candidate (grounding) latency end-to-end: time from
+- [x] Measure current fast-lane candidate (grounding) latency end-to-end: time from
       response-complete to grounding score available, with the Phase 5 ONNX-quantized
       artifact. This number determines whether "fast lane" is feasible at all before
       designing around it.
-- [ ] Confirm with whoever owns the application layer: which applications buffer full
+- [x] Confirm with whoever owns the application layer: which applications buffer full
       responses vs. stream tokens live. This determines which of options 1/2/3 above
       apply per-application — don't guess.
-- [ ] Confirm whether `GovernanceRequest`/`DetectorResult` need new fields for a
+- [x] Confirm whether `GovernanceRequest`/`DetectorResult` need new fields for a
       fast-lane pending/cleared state (see 2c) — if yes, this is a `schemas.py` change
       and needs sign-off from whoever owns that file before proceeding.
 
 ### Phase 6b — Fast lane for grounding (single detector, prove the pattern)
-- [ ] Add `fast_async` distinction to detector dispatch (new code, not a rewrite of
+- [x] Add `fast_async` distinction to detector dispatch (new code, not a rewrite of
       existing hot/async split).
-- [ ] Wire `GroundingEngineDetector` as the first fast-lane detector.
-- [ ] Implement whichever of options 1/2/3 (section 2b) fits the applications actually in
+- [x] Wire `GroundingEngineDetector` as the first fast-lane detector.
+- [x] Implement whichever of options 1/2/3 (section 2b) fits the applications actually in
       use, per-application if it varies.
-- [ ] Test: verify a deliberately ungrounded response is caught and corrected/gated within
+- [x] Test: verify a deliberately ungrounded response is caught and corrected/gated within
       the fast-lane target time, not after a session threshold.
-- [ ] Test: verify the existing Session Risk Accumulator behavior is completely unchanged
+- [x] Test: verify the existing Session Risk Accumulator behavior is completely unchanged
       — this must be purely additive.
 
 ### Phase 6c — Evaluate whether fairness needs the same treatment
-- [ ] Decide: does a single-response fairness flag (as opposed to a pattern across turns)
+- [x] Decide: does a single-response fairness flag (as opposed to a pattern across turns)
       warrant fast-lane treatment too, or is session-level accumulation actually correct
       for fairness specifically? (Unlike grounding, a single biased-sounding response CAN
       sometimes only be judgeable in context — this is a real design question, not a given.
@@ -164,25 +164,25 @@ open.**
       was the right call.
 - [x] ~~ONNX export + quantization + hot-reload~~ — done; this also substantially de-risks
       the "is a fast lane for grounding latency-feasible" question in section 2a above.
-- [ ] **Revisit the fairness fine-tune with more/better data, now that there's a pretrained
+- [x] **Revisit the fairness fine-tune with more/better data, now that there's a pretrained
       baseline to beat.** The failed fine-tune attempt is worth a second pass specifically
       because you now have `compare_detectors.py` and a known target (beat
       `facebook/roberta-hate-speech-dynabench-r4-target`'s numbers) rather than fine-tuning
       blind. Consider: more HateXplain data, or combining HateXplain with a second fairness
       dataset for broader coverage of protected-attribute proxies, before concluding
       fine-tuning can't beat the pretrained option here.
-- [ ] **Injection/toxicity: check for data drift, not just data volume.** More data helps
+- [x] **Injection/toxicity: check for data drift, not just data volume.** More data helps
       most when it's covering failure modes the current data doesn't — pull the false
       negatives/positives that show up once these models are live (via the Phase 5
       `/admin/reload-models` + whatever logging exists) and feed those back into the next
       training round specifically, rather than just adding generic volume to the existing
       sets.
-- [ ] **Grounding: consider the `-large` NLI variant now that ONNX+quantization exists.**
+- [x] **Grounding: consider the `-large` NLI variant now that ONNX+quantization exists.**
       The earlier latency objection to using the larger, more accurate NLI model is
       weaker now that Phase 5 already solved CPU inference speed for this detector class —
       worth re-testing whether `-large` fits the fast-lane latency target from section 2a
       once quantized.
-- [ ] **Abstention path still open.** Calibration (already done, <=5% FNR) gives a
+- [x] **Abstention path still open.** Calibration (already done, <=5% FNR) gives a
       trustworthy probability; it does not by itself give a "decline to score, flag for
       human review" path for low-confidence/out-of-distribution inputs. This is independent
       of both the delay fix and the data recommendations above — worth its own small
