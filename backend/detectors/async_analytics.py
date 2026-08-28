@@ -95,6 +95,7 @@ class PrivacyEngineDetector(BaseDetector):
 class FairnessEngineDetector(BaseDetector):
     name = "bias_fairness_engine"
     hot_path = False
+    fast_async = True
 
     _TERMS = [
         "gender", "ethnicity", "religion", "race", "disability", "age",
@@ -137,6 +138,7 @@ class FairnessEngineDetector(BaseDetector):
 class GroundingEngineDetector(BaseDetector):
     name = "hallucination_grounding_engine"
     hot_path = False
+    fast_async = True
 
     async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
         if request.retrieved_context and request.response:

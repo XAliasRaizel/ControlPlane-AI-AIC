@@ -107,7 +107,7 @@ class CalibratedClassifier:
             try:
                 from optimum.onnxruntime import ORTModelForSequenceClassification
                 from transformers import AutoTokenizer
-                self._model = ORTModelForSequenceClassification.from_pretrained(str(quantized_onnx_dir))
+                self._model = ORTModelForSequenceClassification.from_pretrained(str(quantized_onnx_dir), file_name="model_quantized.onnx")
                 self._tokenizer = AutoTokenizer.from_pretrained(str(quantized_onnx_dir))
                 return
             except ImportError:
@@ -201,16 +201,42 @@ class GroundingScorer:
             return True
         try:
             import torch
-            from transformers import (AutoModelForSequenceClassification,
-                                       AutoTokenizer)
-        except Exception:
-            return False
-        try:
             self._torch = torch
-            self._tokenizer = AutoTokenizer.from_pretrained(str(self.artifact_dir))
-            self._model = AutoModelForSequenceClassification.from_pretrained(
-                str(self.artifact_dir))
-            self._model.eval()
+            
+            quantized_onnx_dir = self.artifact_dir / "model_quantized_onnx"
+            onnx_dir = self.artifact_dir / "model_onnx"
+            model_dir = self.artifact_dir / "model"
+            
+            loaded = False
+            # Try INT8 Quantized ONNX first
+            if quantized_onnx_dir.exists():
+                try:
+                    from optimum.onnxruntime import ORTModelForSequenceClassification
+                    from transformers import AutoTokenizer
+                    self._model = ORTModelForSequenceClassification.from_pretrained(str(quantized_onnx_dir), file_name="model_quantized.onnx")
+                    self._tokenizer = AutoTokenizer.from_pretrained(str(quantized_onnx_dir))
+                    loaded = True
+                except ImportError:
+                    pass
+
+            # Try FP32 ONNX second
+            if not loaded and onnx_dir.exists():
+                try:
+                    from optimum.onnxruntime import ORTModelForSequenceClassification
+                    from transformers import AutoTokenizer
+                    self._model = ORTModelForSequenceClassification.from_pretrained(str(onnx_dir))
+                    self._tokenizer = AutoTokenizer.from_pretrained(str(onnx_dir))
+                    loaded = True
+                except ImportError:
+                    pass
+
+            # PyTorch fallback
+            if not loaded:
+                from transformers import AutoModelForSequenceClassification, AutoTokenizer
+                self._tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+                self._model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
+                self._model.eval()
+
             id2label = {int(k): str(v).lower()
                         for k, v in getattr(self._model.config, "id2label", {}).items()}
             for i, label in id2label.items():

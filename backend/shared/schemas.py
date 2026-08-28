@@ -41,6 +41,7 @@ class GovernanceRequest(BaseModel):
     tools_requested: list[str] = Field(default_factory=list)
     retrieved_context: list[str] = Field(default_factory=list)
     data_classification: Optional[str] = None  # e.g. "PUBLIC" | "INTERNAL" | "HIGH"
+    fast_lane_webhook: Optional[str] = None
 
     # --- Backward-compatibility aliases (old field names accepted on input) ---
     # These are NOT persisted; they populate the canonical fields above via
@@ -138,6 +139,7 @@ class GovernanceResponse(BaseModel):
     policy: PolicyMatch
     sanitized_response: Optional[str] = None
     async_job_id: Optional[str] = None
+    fast_lane_pending: bool = False
     latency_ms: float
 
 

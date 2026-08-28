@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from backend.shared.config import settings
@@ -83,11 +83,46 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Fast-lane background task
+# ---------------------------------------------------------------------------
+async def run_fast_lane(request: GovernanceRequest, async_job_id: str):
+    fast_detectors = [d for d in DETECTOR_REGISTRY.values() if getattr(d, 'fast_async', False)]
+    if not fast_detectors:
+        return
+    results = await asyncio.gather(*[d.analyze(request, {}) for d in fast_detectors])
+    
+    try:
+        job = db.get_job(async_job_id)
+        if job:
+            result_data = job.get("result") or {}
+            result_data["fast_lane_results"] = [r.model_dump(mode="json") for r in results]
+            status = "FAST_LANE_COMPLETED" if job.get("status") == "QUEUED" else job.get("status")
+            db.update_job(async_job_id, status, result_data)
+    except Exception as e:
+        logger.warning("Could not update fast lane job in DB: %s", e)
+
+    high_risk = [r for r in results if r.score > 0.65 or r.label in ("HIGH", "BIASED")]
+    if high_risk and request.fast_lane_webhook:
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(request.fast_lane_webhook, json={
+                    "request_id": request.request_id,
+                    "action": "RETRACT",
+                    "reason": "Fast-lane analysis detected high risk.",
+                    "detectors": [r.model_dump(mode="json") for r in high_risk]
+                })
+        except Exception as e:
+            logger.warning("Failed to push fast lane correction to webhook: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Core governance endpoint (Section 5.1)
 # ---------------------------------------------------------------------------
 @app.post("/v1/govern", response_model=GovernanceResponse)
 async def govern(
     request: GovernanceRequest,
+    background_tasks: BackgroundTasks,
     _api_key: str = Depends(verify_api_key),
 ):
     if len(request.prompt) > settings.max_prompt_chars:
@@ -161,12 +196,20 @@ async def govern(
 
     # 9. Async path — fire and forget with DB tracking (Section 5.8)
     async_job_id: str = f"async-{request_id[:8]}"
+    
+    fast_async_detectors = [d for d in DETECTOR_REGISTRY.values() if getattr(d, 'fast_async', False)]
+    fast_lane_pending = len(fast_async_detectors) > 0
+
     try:
         db.create_job(async_job_id, request_id)
         from backend.async_pipeline.publisher import publish_event
         # Include response in async analysis request so engines have full interaction context
         async_request = request.model_copy(update={"response": sanitized or candidate_response})
         await publish_event(request_id, async_request, async_job_id)
+        
+        if fast_lane_pending:
+            background_tasks.add_task(run_fast_lane, async_request, async_job_id)
+            
     except Exception as exc:
         logger.warning("Async publish failed (non-blocking): %s", exc)
 
@@ -178,6 +221,7 @@ async def govern(
         policy=policy,
         sanitized_response=sanitized,
         async_job_id=async_job_id,
+        fast_lane_pending=fast_lane_pending,
         latency_ms=round(latency_ms, 2),
     )
 
