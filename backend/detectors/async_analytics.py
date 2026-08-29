@@ -120,34 +120,54 @@ class GroundingEngineDetector(BaseDetector):
     hot_path = False
 
     async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
-        if request.retrieved_context and request.response:
-            response_words = set(request.response.lower().split())
-            doc_words = set(" ".join(request.retrieved_context).lower().split())
-            overlap = len(response_words & doc_words) / max(1, len(response_words))
-            score = round(1.0 - overlap, 3)
+        if not request.response:
+            return DetectorResult(
+                detector_name=self.name,
+                score=0.0,
+                label="NOT_APPLICABLE",
+                confidence=0.5,
+                evidence=["Request blocked or candidate response withheld"],
+            )
+
+        # FIX: this used to do raw token-overlap against request.retrieved_context,
+        # which (a) is genuinely weak grounding logic -- exactly what the spec
+        # calls out to replace -- and (b) request.retrieved_context is never
+        # actually populated anywhere in this system, so this branch was dead
+        # code that always fell through to a hardcoded score=0.05 "LOW" no
+        # matter what the response actually said. Now runs the real
+        # Grounding RAG pipeline (rag/grounding/grounding_checker.py):
+        # claim extraction -> retrieval against the internal knowledge base
+        # -> entailment scoring per claim.
+        try:
+            from rag.grounding.grounding_checker import check_grounding
+
+            report = check_grounding(request.response, response_id=request.request_id)
+            # UNSUPPORTED/INSUFFICIENT_EVIDENCE are both "can't confirm this is
+            # grounded" for risk purposes, but only UNSUPPORTED means "the
+            # knowledge base actively suggests this claim is unsupported" --
+            # worth keeping distinguishable in the evidence even though both
+            # map to a similarly elevated score.
+            score = round(1.0 - report.overall_score, 3) if report.claims else 0.0
+            evidence = [
+                f"{c.status}: \"{c.claim[:80]}\"" for c in report.claims if c.status != "SUPPORTED"
+            ] or ["All extracted claims supported by internal knowledge base"]
             return DetectorResult(
                 detector_name=self.name,
                 score=score,
-                label="HIGH" if score > 0.65 else "LOW",
-                confidence=0.8,
-                evidence=[f"Knowledge Base Grounding: {round(overlap * 100, 1)}% token alignment with retrieved documents"],
+                label=report.overall_status,
+                confidence=0.75 if report.claims else 0.5,
+                evidence=evidence[:5],
             )
-        if request.response:
-            word_count = len(request.response.split())
+        except Exception as exc:
+            # Grounding RAG failure must never break the async pipeline
+            # (Section 15) -- report it as its own explicit state instead.
             return DetectorResult(
                 detector_name=self.name,
-                score=0.05,
-                label="LOW",
-                confidence=0.6,
-                evidence=[f"Evaluated {word_count} tokens -- response format matches enterprise policy template"],
+                score=0.0,
+                label="MODEL_ERROR",
+                confidence=0.3,
+                evidence=[f"Grounding check failed: {exc}"],
             )
-        return DetectorResult(
-            detector_name=self.name,
-            score=0.0,
-            label="NOT_APPLICABLE",
-            confidence=0.5,
-            evidence=["Request blocked or candidate response withheld"],
-        )
 
 
 @register

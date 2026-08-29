@@ -7,3 +7,6 @@ python-multipart==0.0.20
 PyYAML==6.0.2
 pytest==8.3.5
 httpx==0.28.1
+chromadb==1.5.9
+scikit-learn==1.8.0
+numpy>=1.26

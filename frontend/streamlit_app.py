@@ -31,6 +31,8 @@ if "last_async_result" not in st.session_state:
     st.session_state.last_async_result = None
 if "feedback_status" not in st.session_state:
     st.session_state.feedback_status = {}
+if "ask_messages" not in st.session_state:
+    st.session_state.ask_messages = []
 
 # Sidebar — Request & Security Context
 with st.sidebar:
@@ -81,12 +83,13 @@ def fetch_async_analysis(job_id: str, timeout: float = 3.0):
     return None
 
 
-tab_chat, tab_manual, tab_metrics, tab_policies, tab_reviews = st.tabs([
+tab_chat, tab_manual, tab_metrics, tab_policies, tab_reviews, tab_ask = st.tabs([
     "💬 Governance Chatbot",
     "🔬 Advanced Inspector",
     "📊 Platform Metrics",
     "📜 Policy Rules",
     "🗂️ Review Queue",
+    "🧠 Ask ControlPlane (RAG)",
 ])
 
 
@@ -412,4 +415,64 @@ with tab_reviews:
                             st.error(res.text)
                     except Exception as e:
                         st.error(f"Error: {e}")
+
+
+# ==============================================================================
+# TAB 6: ASK CONTROLPLANE (RAG OVER POLICY & AUDIT)
+# ==============================================================================
+with tab_ask:
+    st.subheader("🧠 Ask ControlPlane — Policy & Compliance Intelligence")
+    st.caption("Ask questions about enterprise policies, regulatory standards (GDPR, EU AI Act, HIPAA), and audit logs.")
+
+    c_reindex, _ = st.columns([1.5, 4])
+    with c_reindex:
+        if st.button("🔄 Reindex Audit Log", key="btn_reindex_audit"):
+            try:
+                r = requests.post(f"{API}/v1/ask-controlplane/reindex", timeout=10)
+                if r.status_code == 200:
+                    cnt = r.json().get("indexed", 0)
+                    st.success(f"Audit log indexed ({cnt} records).")
+                else:
+                    st.error(f"Reindex failed: {r.text}")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    for q_item in st.session_state.ask_messages:
+        with st.chat_message("user"):
+            st.markdown(q_item["question"])
+        with st.chat_message("assistant"):
+            st.markdown(q_item["answer"])
+            if q_item.get("citations"):
+                with st.expander(f"📚 View Citations ({len(q_item['citations'])})"):
+                    for c in q_item["citations"]:
+                        st.markdown(f"**Source:** `{c.get('source')}` (Relevance: `{c.get('score', 0.0):.2f}`)")
+                        st.caption(c.get("snippet", ""))
+
+    ask_prompt = st.chat_input("Ask about policies (e.g. 'What is our policy on PII in Finance?', 'What are GDPR lawful processing rules?')", key="ask_input_chat")
+    if ask_prompt:
+        with st.chat_message("user"):
+            st.markdown(ask_prompt)
+        try:
+            r = requests.post(f"{API}/v1/ask-controlplane", json={"question": ask_prompt}, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                ans_text = data.get("answer", "No answer returned.")
+                citations = data.get("citations", [])
+                st.session_state.ask_messages.append({
+                    "question": ask_prompt,
+                    "answer": ans_text,
+                    "citations": citations,
+                })
+                with st.chat_message("assistant"):
+                    st.markdown(ans_text)
+                    if citations:
+                        with st.expander(f"📚 View Citations ({len(citations)})"):
+                            for c in citations:
+                                st.markdown(f"**Source:** `{c.get('source')}` (Relevance: `{c.get('score', 0.0):.2f}`)")
+                                st.caption(c.get("snippet", ""))
+            else:
+                st.error(f"Error {r.status_code}: {r.text}")
+        except Exception as e:
+            st.error(f"Request failed: {e}")
+
 

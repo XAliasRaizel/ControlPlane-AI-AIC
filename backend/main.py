@@ -37,14 +37,35 @@ from backend.shared import llm_simulator
 # Trigger detector self-registration by importing the package
 from backend.detectors import DETECTOR_REGISTRY, run_hot_path  # noqa: F401
 from backend.risk.engine import calculate_risk
+from contextlib import asynccontextmanager
+
 from backend.policy.engine import evaluate_policy, policy_engine
 from backend.decision.engine import make_decision, sanitize_response
 from backend.agents.router import router as agent_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        from rag.policy.policy_rag import get_policy_evidence
+        get_policy_evidence(
+            role="employee",
+            app="support-bot",
+            dept="HR",
+            matched_rule="test",
+            data_class="PUBLIC",
+        )
+        logger.info("Policy RAG warm-up complete.")
+    except Exception as exc:
+        logger.warning("Policy RAG warm-up skipped: %s", exc)
+    yield
+
 
 app = FastAPI(
     title="ControlPlane.ai",
     description="Enterprise AI governance control plane — observe, reason, act, learn.",
     version="0.4.0",
+    lifespan=lifespan,
 )
 app.include_router(agent_router)
 
@@ -164,6 +185,21 @@ async def govern(
     except Exception as exc:
         logger.warning("Async publish failed (non-blocking): %s", exc)
 
+    # 10. Policy RAG explanation (never affects decision)
+    policy_evidence = None
+    try:
+        from rag.policy.policy_rag import get_policy_evidence
+        pe = get_policy_evidence(
+            role=request.user_role or "user",
+            app=request.application_id or "default",
+            dept=request.department or "General",
+            matched_rule=policy.policy_id if policy else "",
+            data_class=request.data_classification or "PUBLIC",
+        )
+        policy_evidence = pe.model_dump(mode="json")
+    except Exception as exc:
+        logger.warning("Policy RAG retrieval skipped: %s", exc)
+
     return GovernanceResponse(
         request_id=request_id,
         decision=decision,
@@ -172,6 +208,7 @@ async def govern(
         policy=policy,
         sanitized_response=sanitized,
         async_job_id=async_job_id,
+        policy_evidence=policy_evidence,
         latency_ms=round(latency_ms, 2),
     )
 
@@ -316,4 +353,24 @@ async def resolve_review(request_id: str, payload: ReviewResolution):
 @app.get("/v1/gpu")
 async def gpu_status():
     return gpu.status()
+
+
+# ---------------------------------------------------------------------------
+# Ask ControlPlane endpoints (RAG over policy & audit knowledge bases)
+# ---------------------------------------------------------------------------
+class AskRequest(BaseModel):
+    question: str
+
+
+@app.post("/v1/ask-controlplane")
+async def ask_controlplane(payload: AskRequest):
+    from rag.ask_controlplane.chat import ask
+    return ask(payload.question, db=db)
+
+
+@app.post("/v1/ask-controlplane/reindex")
+async def reindex_audit():
+    from rag.ask_controlplane.retrieval import rebuild_audit_index
+    return {"indexed": rebuild_audit_index(db)}
+
 

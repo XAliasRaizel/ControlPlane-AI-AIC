@@ -138,6 +138,7 @@ class GovernanceResponse(BaseModel):
     policy: PolicyMatch
     sanitized_response: Optional[str] = None
     async_job_id: Optional[str] = None
+    policy_evidence: Optional[dict[str, Any]] = None
     latency_ms: float
 
 

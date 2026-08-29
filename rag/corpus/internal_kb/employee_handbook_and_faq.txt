@@ -1,0 +1,52 @@
+Employee Handbook — Leave Policy (Prototype Internal Knowledge Base)
+======================================================================
+Full-time employees accrue 18 days of annual leave per calendar year,
+credited at 1.5 days per completed month of service. Leave requests must
+be submitted through the HR Portal at least 3 working days in advance for
+requests of 3 days or fewer, and 10 working days in advance for longer
+requests. Unused annual leave may be carried over up to a maximum of 5
+days into the following calendar year; any balance beyond that is
+forfeited unless local law requires otherwise. Sick leave is tracked
+separately from annual leave and does not require advance notice, though
+a manager should be informed on the first day of absence. Employees on
+leave for more than 20 consecutive working days should contact HR to
+discuss extended-leave and return-to-work procedures.
+
+Employee Handbook — Working Hours and Remote Work (Prototype Internal Knowledge Base)
+========================================================================================
+Standard office hours are 9:00 AM to 6:00 PM, Monday through Friday, with
+a one-hour lunch break. Core collaboration hours, during which all
+employees are expected to be reachable regardless of flexible scheduling,
+are 11:00 AM to 4:00 PM local time. Employees may work remotely up to 3
+days per week with manager approval; fully remote arrangements require
+director-level sign-off and are evaluated on a role-by-role basis.
+
+IT Support FAQ — Account and Password Management (Prototype Internal Knowledge Base)
+========================================================================================
+Corporate account passwords must be reset every 90 days and require a
+minimum of 12 characters including at least one number and one symbol.
+To reset a forgotten password, use the "Forgot Password" link on the
+login page; a reset link is emailed within 5 minutes. If no email arrives
+within 15 minutes, contact the IT helpdesk directly rather than
+requesting repeated reset emails, as repeated requests can trigger a
+temporary account lock for security reasons. Multi-factor authentication
+is mandatory for all accounts with access to finance or HR systems.
+
+Product Documentation — ControlPlane Governance Actions (Prototype Internal Knowledge Base)
+================================================================================================
+ControlPlane's decision engine can take one of five actions on any
+governed request: ALLOW (no concerns found), MODIFY (response sanitized
+before being returned, e.g. PII redacted), REROUTE (not yet implemented
+in this prototype), HUMAN_REVIEW (held for a reviewer to resolve rather
+than automatically actioned), and BLOCK (request denied outright). Every
+decision, regardless of action, is written to the audit log with the
+matched policy rule and the detector scores that produced it.
+
+Finance FAQ — Expense Reimbursement (Prototype Internal Knowledge Base)
+===========================================================================
+Expense reports must be submitted within 30 days of the expense date
+through the Finance Portal, with itemized receipts attached for any
+single expense over $25. Reimbursements are processed on a bi-weekly
+cycle and are typically credited within 10 business days of report
+approval. Travel expenses require pre-approval from a manager for any
+trip exceeding $1,000 in estimated total cost.

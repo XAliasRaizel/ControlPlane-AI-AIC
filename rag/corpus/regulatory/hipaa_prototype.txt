@@ -1,0 +1,50 @@
+HIPAA — Prototype Healthcare Privacy Corpus (Summary Form)
+============================================================
+NOTE: Plain-language summary of the HIPAA Privacy Rule's core concepts for
+Policy RAG demo/retrieval purposes, not verbatim regulatory text (45 CFR
+Parts 160 and 164). Not legal advice.
+
+Protected Health Information (PHI)
+----------------------------------------------------------------
+HIPAA's Privacy Rule protects "individually identifiable health
+information" held by a covered entity or its business associates --
+information relating to a person's past, present, or future physical or
+mental health condition, the provision of health care to them, or payment
+for that care, when it identifies (or could reasonably identify) the
+individual. This includes obvious fields like diagnoses and prescriptions,
+but also identifiers such as names, dates, and account numbers when
+combined with health context.
+
+Minimum necessary standard
+----------------------------------------------------------------
+Covered entities must make reasonable efforts to limit use, disclosure,
+and requests for PHI to the minimum necessary to accomplish the intended
+purpose. This is the healthcare-specific analogue of GDPR's data
+minimisation principle (Article 5) and is directly relevant to any AI
+system that could retrieve health-adjacent information in response to a
+broad query -- the system should surface only what the specific,
+legitimate purpose requires, not the full record.
+
+Permitted disclosures without authorization
+----------------------------------------------------------------
+PHI may generally be used or disclosed without specific patient
+authorization for treatment, payment, and healthcare operations, and in a
+limited set of other circumstances (e.g. required by law, public health
+activities). Disclosure for purposes outside these categories -- for
+example, an internal AI assistant surfacing a colleague's health
+information to someone without a treatment, payment, or operations reason
+to see it -- would fall outside permitted use and should be treated as an
+unauthorized-access case, structurally identical to how ControlPlane
+already treats unauthorized salary or financial-record access.
+
+Why this matters for a general-purpose enterprise copilot
+----------------------------------------------------------------
+Most enterprise AI copilots are not built for clinical use and are not
+"covered entities" in the formal HIPAA sense, but an internal support or
+HR assistant can still be asked questions that touch employee
+health-related information (medical leave reasons, accommodation
+requests, insurance claims). Treating any health-adjacent request as
+high-sensitivity by default -- rather than only responding to explicit
+"HIPAA" framing -- is the safer default posture, and mirrors GDPR Article
+9's treatment of health data as a special category requiring a specific
+justification rather than ordinary-course access.

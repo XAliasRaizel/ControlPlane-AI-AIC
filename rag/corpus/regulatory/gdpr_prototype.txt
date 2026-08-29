@@ -1,0 +1,79 @@
+GDPR — Prototype Regulatory Corpus (Summary Form)
+==================================================
+NOTE ON THIS DOCUMENT: This is a prototype knowledge-base document for
+ControlPlane.ai's Policy RAG. It is a plain-language SUMMARY of what each
+article covers, written for retrieval and citation purposes in a demo
+environment -- it is NOT the verbatim legal text of the Regulation, and
+must not be used as a substitute for the official GDPR text (Regulation
+(EU) 2016/679) or for legal advice. Replace with actual verified legal
+source text (or a licensed regulatory database feed) before any real
+compliance use.
+
+Article 5 — Principles relating to processing of personal data
+----------------------------------------------------------------
+Article 5 sets out the core principles that govern all processing of
+personal data under GDPR. Personal data must be: processed lawfully,
+fairly, and transparently; collected for specified, explicit, and
+legitimate purposes and not further processed in a way incompatible with
+those purposes (purpose limitation); adequate, relevant, and limited to
+what is necessary for those purposes (data minimisation); accurate and
+kept up to date; kept in a form permitting identification of the data
+subject for no longer than necessary (storage limitation); and processed
+with appropriate security, integrity, and confidentiality. The controller
+is responsible for, and must be able to demonstrate compliance with,
+these principles ("accountability"). For an enterprise AI governance
+system, Article 5's data-minimisation and purpose-limitation principles
+are directly relevant to any AI application that retrieves or surfaces
+more personal data than the specific task requires.
+
+Article 6 — Lawfulness of processing
+----------------------------------------------------------------
+Article 6 requires that processing of personal data have a valid legal
+basis. It lists six possible bases: the data subject has given consent;
+processing is necessary for performance of a contract with the data
+subject; processing is necessary to comply with a legal obligation;
+processing is necessary to protect the vital interests of the data
+subject or another person; processing is necessary for a task carried out
+in the public interest; or processing is necessary for the legitimate
+interests of the controller or a third party, provided those interests
+are not overridden by the data subject's rights and freedoms. An AI
+system that accesses employee or customer personal data (for example, an
+HR copilot retrieving salary or leave records) must have an identifiable
+Article 6 basis for that specific access, not merely a general basis for
+holding the data in the first place.
+
+Article 9 — Processing of special categories of personal data
+----------------------------------------------------------------
+Article 9 imposes a general prohibition on processing "special category"
+personal data -- data revealing racial or ethnic origin, political
+opinions, religious or philosophical beliefs, trade union membership,
+genetic data, biometric data used for identification, health data, or
+data concerning a person's sex life or sexual orientation. Processing
+this category of data is prohibited unless one of the specific exceptions
+in Article 9(2) applies (for example: explicit consent, employment/social
+security law obligations, vital interests, or substantial public
+interest with appropriate safeguards). Health data is squarely within
+this special category, which is why an AI system that could surface
+medical or health-adjacent information carries materially higher risk
+than one handling ordinary personal data, and why a governance system
+should treat "health," "medical," or "diagnosis"-adjacent requests as a
+distinct, higher-sensitivity class rather than folding them into generic
+PII handling.
+
+Article 22 — Automated individual decision-making, including profiling
+----------------------------------------------------------------
+Article 22 gives individuals the right not to be subject to a decision
+based solely on automated processing, including profiling, which produces
+legal effects concerning them or similarly significantly affects them --
+for example, an automated rejection of a credit or loan application, or
+an automated hiring decision, with no meaningful human involvement.
+Exceptions apply where the decision is necessary for a contract, is
+authorised by law with suitable safeguards, or is based on explicit
+consent; even then, the data subject retains rights to obtain human
+intervention, to express their point of view, and to contest the
+decision. This is the direct regulatory basis for keeping a genuine
+human-in-the-loop review path for high-impact automated decisions (loan
+approvals, hiring recommendations) rather than allowing an AI system to
+be the sole, unreviewable decision-maker in those categories -- which is
+exactly the role of ControlPlane's HUMAN_REVIEW decision path for
+applications tagged as high-impact (loan-decision, hiring-decision).

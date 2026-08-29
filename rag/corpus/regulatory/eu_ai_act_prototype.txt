@@ -1,0 +1,57 @@
+EU AI Act — Prototype Regulatory Corpus (Summary Form)
+========================================================
+NOTE: Plain-language summary for Policy RAG demo/retrieval purposes, not
+verbatim legal text of Regulation (EU) 2024/1689. Verified against current
+public reporting as of August 2026; confirm against the official Official
+Journal text and any further Digital Omnibus amendments before real use --
+this regulation's timeline has already changed once (see below) and may
+change again.
+
+Overview and phased timeline
+----------------------------------------------------------------
+The EU AI Act entered into force on 1 August 2024 and applies obligations
+in stages rather than all at once:
+  - 2 February 2025: prohibited AI practices (e.g. certain social scoring,
+    manipulative or exploitative systems, some biometric categorisation)
+    became enforceable.
+  - 2 August 2025: obligations for providers of general-purpose AI (GPAI)
+    models took effect.
+  - 2 August 2026: Article 50 transparency obligations became enforceable
+    -- disclosure that a user is interacting with an AI system, labelling
+    of synthetic/deepfake content, and marking of AI-generated content.
+    This date has already passed as of this document's writing and these
+    obligations are now in effect.
+  - High-risk AI system obligations (Annex III: biometrics, critical
+    infrastructure, education, employment, essential services, law
+    enforcement, migration, and administration of justice) were originally
+    also scheduled for 2 August 2026. A "Digital Omnibus on AI," reaching
+    political agreement in mid-2026, deferred the Annex III high-risk
+    obligations to 2 December 2027 (Annex I product-embedded high-risk
+    systems remain on a later 2 August 2028 track). Treat this deferral as
+    provisional pending final confirmation in the Official Journal.
+
+Practical implication for an internal governance tool
+----------------------------------------------------------------
+Two distinct obligation tracks matter for a system like ControlPlane:
+  1. Transparency (Article 50) -- already in force. Any user-facing AI
+     interaction (e.g. the HR/support chatbot) should be clearly
+     disclosed as AI-driven, and any synthetic content it produces that
+     could be mistaken for authentic material should be identifiable as
+     AI-generated.
+  2. High-risk system obligations (Annex III) -- deferred, but still
+     coming. Employment decisions and access to essential services are
+     explicitly listed high-risk categories. This is the same reasoning
+     ControlPlane already applies internally by tagging loan-decision and
+     hiring-decision applications as critical/high-impact and routing
+     them toward human review -- that design choice anticipates the
+     Annex III obligations for risk management, human oversight, logging,
+     and record-keeping, even though the hard legal deadline for those
+     specific obligations has moved out to December 2027.
+
+What this corpus intentionally does not cover
+----------------------------------------------------------------
+This summary does not cover conformity assessment procedures, CE marking,
+EU database registration, or the specific technical documentation format
+required under Annex IV -- those are compliance-process requirements for
+providers placing high-risk systems on the market, not directly relevant
+to an internal governance control plane's retrieval corpus.
