@@ -1,23 +1,33 @@
 """Ask ControlPlane conversational endpoint (spec Section 4/5).
 
-Answer synthesis here is EXTRACTIVE, not generative -- composed directly
-from retrieved chunk text plus light connecting language, not produced by
-an LLM call. This mirrors the existing llm_simulator.py pattern already
-used elsewhere in this codebase (a real generative LLM needs an API key
-this sandbox doesn't have configured) and is honest about what it is: no
-invented facts are possible because nothing is generated, only assembled
-from what was actually retrieved. `synthesize_answer()` is written as a
-single, swappable seam -- replace its body with a real LLM call
-(retrieved chunks as context, standard RAG prompting) and nothing else in
-the pipeline needs to change.
+Answer synthesis has two modes, selected automatically at call time:
+
+1. **Generative** (preferred) — retrieved chunks are assembled into a RAG
+   context and sent to a Groq-hosted LLM, which produces a coherent,
+   grounded answer with light connecting language.  Active when
+   ``RAG_GENERATION_ENABLED=true`` (default) **and** ``GROQ_API_KEY`` is
+   set **and** the ``groq`` package is installed.
+
+2. **Extractive** (fallback) — the single best-matching chunk's text is
+   returned verbatim, exactly as the system worked before Groq integration.
+   Activated automatically on *any* failure in the generative path (import
+   error, missing key, API timeout, rate limit, empty response, etc.).
+
+``synthesize_answer()`` is still the single, swappable seam — it now
+returns a ``(answer_text, generation_mode)`` tuple so the caller can
+record which path produced the answer.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 
 from rag.ask_controlplane.retrieval import hybrid_retrieve
+from rag.config import rag_settings
 from rag.schemas import AskControlPlaneAnswer, RetrievedChunk
+
+logger = logging.getLogger("controlplane.rag.ask")
 
 _INSUFFICIENT_EVIDENCE_MESSAGE = (
     "I don't have sufficient evidence in the ControlPlane knowledge base to answer this."
@@ -44,25 +54,54 @@ def _format_citation(chunk: RetrievedChunk) -> str:
     return f"{label}" + (f" -> {section}" if section else "")
 
 
-def synthesize_answer(question: str, chunks: list[RetrievedChunk]) -> str:
-    """The swappable seam described in the module docstring."""
-    if not chunks:
-        return _INSUFFICIENT_EVIDENCE_MESSAGE
+def _build_rag_context(chunks: list[RetrievedChunk]) -> str:
+    """Assemble retrieved chunks into a single context string for the LLM."""
+    parts: list[str] = []
+    for i, chunk in enumerate(chunks, 1):
+        source = chunk.metadata.get("source") or chunk.metadata.get("document") or "unknown"
+        parts.append(f"[{i}] (source: {source})\n{chunk.text}")
+    return "\n\n".join(parts)
 
+
+def synthesize_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, str]:
+    """The swappable seam described in the module docstring.
+
+    Returns
+    -------
+    tuple[str, str]
+        (answer_text, generation_mode) where generation_mode is
+        ``"groq"`` or ``"extractive"``.
+    """
+    if not chunks:
+        return _INSUFFICIENT_EVIDENCE_MESSAGE, "extractive"
+
+    # --- request-id shortcut (always extractive — exact match, no LLM needed) ---
     requested_id = _looks_like_request_id_question(question)
     if requested_id:
         audit_chunks = [c for c in chunks if c.metadata.get("document_type") == "audit_record"]
         matching = [c for c in audit_chunks if requested_id in c.metadata.get("request_id", "")]
         if matching:
-            return matching[0].text
+            return matching[0].text, "extractive"
         if not audit_chunks:
-            return _INSUFFICIENT_EVIDENCE_MESSAGE
+            return _INSUFFICIENT_EVIDENCE_MESSAGE, "extractive"
 
-    # General case: lead with the single best-matching chunk's text,
-    # verbatim (it's already well-formed prose from the ingestion
-    # pipeline), rather than trying to further compress or paraphrase it
-    # without a generation step.
-    return chunks[0].text
+    # --- generative path (Groq) ---
+    if rag_settings.generation_enabled and rag_settings.groq_api_key:
+        try:
+            from rag.ask_controlplane.llm_client import GroqLLMClient
+
+            client = GroqLLMClient()
+            context = _build_rag_context(chunks)
+            answer = client.generate(context=context, question=question)
+            if answer and answer.strip():
+                return answer.strip(), "groq"
+            # Empty response — fall through to extractive
+            logger.warning("Groq returned empty response, falling back to extractive.")
+        except Exception as exc:
+            logger.warning("Groq generation failed (%s), falling back to extractive.", exc)
+
+    # --- extractive fallback ---
+    return chunks[0].text, "extractive"
 
 
 def ask(question: str, top_k: int = 5, db=None) -> AskControlPlaneAnswer:
@@ -104,11 +143,12 @@ def ask(question: str, top_k: int = 5, db=None) -> AskControlPlaneAnswer:
             status="INSUFFICIENT_EVIDENCE", confidence=0.0,
         )
 
-    answer_text = synthesize_answer(question, chunks)
+    answer_text, generation_mode = synthesize_answer(question, chunks)
     confidence = round(sum(c.score for c in chunks[:3]) / min(3, len(chunks)), 3)
 
     return AskControlPlaneAnswer(
-        answer=answer_text, citations=chunks, status="SUCCESS", confidence=confidence,
+        answer=answer_text, citations=chunks, status="SUCCESS",
+        confidence=confidence, generation_mode=generation_mode,
     )
 
 

@@ -8,3 +8,11 @@
 # Do not remove: without this, bare `pytest -q` on CI (ubuntu-latest) raises
 #   ModuleNotFoundError: No module named 'backend'
 # because the console-script entry-point does not add cwd to sys.path.
+
+import pytest
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+

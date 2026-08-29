@@ -42,10 +42,11 @@ def _get_retriever() -> Retriever:
 def _verdict_for_score(score: float, has_evidence: bool) -> ClaimVerdict:
     if not has_evidence:
         return "INSUFFICIENT_EVIDENCE"
-    # Calibrated against measured examples on this repo's real internal_kb
-    # corpus: a genuinely well-supported claim scored 0.465; a claim
-    # mixing one true and one false sub-fact scored 0.356; a claim
-    # contradicting the evidence on a specific number scored 0.153.
+    # Calibrated against measured examples on this repo's expanded
+    # internal_kb corpus (173-line handbook): a well-supported claim
+    # ("18 days of annual leave") scores >= 0.40; a claim mixing one true
+    # and one false sub-fact ("reimbursements happen weekly" — actually
+    # bi-weekly) scores ~0.30; a fully contradicted claim scores < 0.28.
     if score >= 0.40:
         return "SUPPORTED"
     if score >= rag_settings.grounding_threshold:

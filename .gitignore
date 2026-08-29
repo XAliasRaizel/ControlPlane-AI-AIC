@@ -25,3 +25,6 @@ data/fairness.jsonl
 .ci_log.txt
 .pbs.json
 
+# Dynamic RAG runtime indices
+rag_store/audit_*
+

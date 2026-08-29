@@ -1,0 +1,198 @@
+/* ControlPlane.ai — Minimalist Enterprise UI Theme */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg-main: #0B0F19;
+  --bg-card: #111827;
+  --bg-card-hover: #1F2937;
+  --border-color: #1F2937;
+  --text-main: #F9FAFB;
+  --text-muted: #9CA3AF;
+  --accent-blue: #3B82F6;
+  --status-allow: #10B981;
+  --status-block: #EF4444;
+  --status-review: #F59E0B;
+  --status-modify: #6366F1;
+}
+
+html, body, [class*="css"] {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--text-main);
+}
+
+code, pre, .cp-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* Minimalist Clean App Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0 1.2rem 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1.2rem;
+}
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.app-logo {
+  font-weight: 700;
+  font-size: 1.3rem;
+  letter-spacing: -0.03em;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.app-tag {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-blue);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #111827;
+  border: 1px solid var(--border-color);
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-allow);
+  box-shadow: 0 0 8px var(--status-allow);
+}
+
+/* Clean Decision Banner */
+.decision-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin: 0.6rem 0;
+  border: 1px solid;
+  font-size: 0.85rem;
+}
+.decision-banner.allow {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+.decision-banner.block {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.decision-banner.review {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+.decision-banner.modify {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.decision-badge {
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+.decision-badge.allow  { background: rgba(16, 185, 129, 0.2); color: var(--status-allow); }
+.decision-badge.block  { background: rgba(239, 68, 68, 0.2);  color: var(--status-block); }
+.decision-badge.review { background: rgba(245, 158, 11, 0.2); color: var(--status-review); }
+.decision-badge.modify { background: rgba(99, 102, 241, 0.2); color: var(--status-modify); }
+
+/* Simple Clean Card */
+.clean-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem 1.15rem;
+  margin-bottom: 0.8rem;
+}
+.clean-card-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+/* Pipeline Stage Strip */
+.pipeline-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+.pipeline-box {
+  background: #161F30;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+}
+.pipeline-box-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.15rem;
+}
+.pipeline-box-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tabs Clean Styling */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  gap: 0.3rem;
+  border-bottom: 1px solid var(--border-color);
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  font-size: 0.88rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-muted);
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+  color: #fff !important;
+  font-weight: 600 !important;
+  background-color: var(--bg-card) !important;
+  border-bottom: 2px solid var(--accent-blue) !important;
+}
+
+/* Expander */
+[data-testid="stExpander"] {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
