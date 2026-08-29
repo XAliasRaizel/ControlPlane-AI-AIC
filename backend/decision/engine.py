@@ -18,6 +18,16 @@ def make_decision(request: GovernanceRequest, risk: RiskAssessment, policy: Poli
     action = policy.recommended_action or "ALLOW"
     reason = f"Matched policy rule: {policy.policy_id} ({policy.matched_condition})"
 
+    # Abstention Path (Low Confidence Routing)
+    low_conf_hits = [
+        d for d in risk.detector_results
+        if d.confidence < 0.70 and d.label not in ("CLEAN", "LOW", "NOT_APPLICABLE", "OPTIMAL", "COMPLIANT")
+    ]
+    if low_conf_hits and action not in ("HUMAN_REVIEW", "BLOCK"):
+        action = "HUMAN_REVIEW"
+        hit_names = ", ".join(d.detector_name for d in low_conf_hits)
+        reason = f"Abstention path triggered due to low confidence (<0.70) on: {hit_names}"
+
     return GovernanceDecision(
         request_id=request.request_id,
         action=action,

@@ -9,3 +9,22 @@ __pycache__/
 ml/artifacts/
 coverage.xml
 .pytest_cache/
+
+# ControlPlane ML artifacts (large model weights — download/train, don't commit)
+ml/artifacts/
+data/raw/
+data/injection.jsonl
+data/toxicity.jsonl
+data/fairness.jsonl
+
+# CI investigation venv
+.ci_venv/
+.ci_req.txt
+.ci_runs.json
+.ci_jobs.json
+.ci_log.txt
+.pbs.json
+
+# Dynamic RAG runtime indices
+rag_store/audit_*
+

@@ -18,8 +18,19 @@ from backend.shared.sensitive_terms import (
     find_keyword_hits,
     find_value_hits,
     check_safety_net,
+    ALL_VALUE_PATTERNS,
 )
 from backend.detectors.base import BaseDetector, register
+from backend.shared.model_backend import consult_presidio
+
+# Backward-compatibility alias: tests that import _VALUE_PATTERNS directly
+# from this module continue to work. The original format was {label: pattern_string};
+# ALL_VALUE_PATTERNS is a list of (label, compiled_re, cat_name) — rebuild the dict.
+_VALUE_PATTERNS: dict[str, str] = {
+    label: compiled_re.pattern
+    for label, compiled_re, _cat_name in ALL_VALUE_PATTERNS
+}
+
 
 
 @register
@@ -64,6 +75,23 @@ class PIIDetector(BaseDetector):
             confidence = 0.90
             label = "CLEAN"
             evidence = []
+
+        # Optional, default-OFF learned consult for broader entity types
+        # (names, locations, IPs, crypto, etc.) that regex misses.
+        presidio_entities = consult_presidio(text)
+        if presidio_entities:
+            score = max(score, 0.8)
+            label = "PII_DETECTED"
+            confidence = max(confidence, 0.90)
+            # Rebuild evidence as strings — value_hits and keyword_hits are lists
+            # of (label/keyword, category_name) tuples; format them explicitly.
+            evidence = (
+                [f"value:{lbl}" for lbl, _ in value_hits]
+                + [f"keyword:{kw}" for kw, _ in keyword_hits]
+                + [f"presidio:{e}" for e in presidio_entities]
+            )
+        # If presidio fires nothing, keep the evidence already built in the
+        # scoring block above — do NOT overwrite it with raw tuples.
 
         return DetectorResult(
             detector_name=self.name,

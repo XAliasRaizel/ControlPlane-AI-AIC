@@ -7,12 +7,13 @@ audit, and async pipeline.
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from backend.shared.config import settings
@@ -49,11 +50,12 @@ async def lifespan(app: FastAPI):
     try:
         from rag.policy.policy_rag import get_policy_evidence
         get_policy_evidence(
-            role="employee",
-            app="support-bot",
-            dept="HR",
-            matched_rule="test",
-            data_class="PUBLIC",
+            user_role="employee",
+            application_id="support-bot",
+            department="HR",
+            matched_rule_description="test",
+            data_classification="PUBLIC",
+            action="ALLOW",
         )
         logger.info("Policy RAG warm-up complete.")
     except Exception as exc:
@@ -78,6 +80,14 @@ feedback_evaluator = FeedbackEvaluator()
 gpu = GPUAdapter()
 
 
+@app.post("/admin/reload-models", tags=["admin"])
+async def reload_models():
+    """Hot-reload all ML models and clear caches for zero-downtime updates."""
+    from backend.shared.model_backend import reset_cache
+    reset_cache()
+    logger.info("Model cache cleared via /admin/reload-models")
+    return {"status": "ok", "message": "Model cache cleared. Models will be lazily reloaded on next request."}
+
 class ReviewResolution(BaseModel):
     reviewer_id: str = "reviewer"
     final_action: DecisionAction = "BLOCK"
@@ -98,13 +108,77 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Fast-lane background task
+# ---------------------------------------------------------------------------
+async def run_fast_lane(request: GovernanceRequest, async_job_id: str):
+    fast_detectors = [d for d in DETECTOR_REGISTRY.values() if getattr(d, 'fast_async', False)]
+    if not fast_detectors:
+        return
+
+    start = time.perf_counter()
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*[d.analyze(request, {}) for d in fast_detectors]),
+            timeout=0.250
+        )
+        latency_ms = (time.perf_counter() - start) * 1000
+    except asyncio.TimeoutError:
+        latency_ms = (time.perf_counter() - start) * 1000
+        logger.info("fast_lane_decision request_id=%s corrections=0 latency=%.1fms timeout=True option=none", request.request_id, latency_ms)
+        return
+    except Exception as exc:
+        latency_ms = (time.perf_counter() - start) * 1000
+        logger.warning("Fast lane error: %s", exc)
+        logger.info("fast_lane_decision request_id=%s corrections=0 latency=%.1fms timeout=False option=none error=True", request.request_id, latency_ms)
+        return
+    
+    try:
+        job = db.get_job(async_job_id)
+        if job:
+            result_data = job.get("result") or {}
+            result_data["fast_lane_results"] = [r.model_dump(mode="json") for r in results]
+            status = "FAST_LANE_COMPLETED" if job.get("status") == "QUEUED" else job.get("status")
+            db.update_job(async_job_id, status, result_data)
+    except Exception as e:
+        logger.warning("Could not update fast lane job in DB: %s", e)
+
+    high_risk = [r for r in results if r.score > 0.65 or r.label in ("HIGH", "BIASED")]
+    correction_count = len(high_risk)
+    option_used = "option2" if request.fast_lane_webhook else "option1"
+
+    logger.info(
+        "fast_lane_decision request_id=%s corrections=%d latency=%.1fms timeout=False option=%s",
+        request.request_id, correction_count, latency_ms, option_used
+    )
+
+    if high_risk and request.fast_lane_webhook:
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(request.fast_lane_webhook, json={
+                    "request_id": request.request_id,
+                    "action": "RETRACT",
+                    "reason": "Fast-lane analysis detected high risk.",
+                    "detectors": [r.model_dump(mode="json") for r in high_risk]
+                })
+        except Exception as e:
+            logger.warning("Failed to push fast lane correction to webhook: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Core governance endpoint (Section 5.1)
 # ---------------------------------------------------------------------------
 @app.post("/v1/govern", response_model=GovernanceResponse)
 async def govern(
     request: GovernanceRequest,
+    background_tasks: BackgroundTasks,
     _api_key: str = Depends(verify_api_key),
+    x_controlplane_session_id: Optional[str] = Header(None),
 ):
+    # Populate session_id from header when not supplied in the request body.
+    # Header takes lower priority than an explicit body field.
+    if not request.session_id and x_controlplane_session_id:
+        request = request.model_copy(update={"session_id": x_controlplane_session_id})
     if len(request.prompt) > settings.max_prompt_chars:
         raise HTTPException(status_code=413, detail="Prompt exceeds configured maximum length.")
 
@@ -174,14 +248,75 @@ async def govern(
         fingerprint(request.prompt),
     )
 
+    # --- Phase 9: Session telemetry + entity reconstruction hook ---
+    if risk.session_risk is not None and request.session_id:
+        session_ctx = risk.contextual_factors.get("session", {})
+        logger.info(
+            "session_telemetry request_id=%s session_id=%s session_risk=%.3f "
+            "session_band=%d ewma=%.4f peak=%.4f turn_count=%d "
+            "contamination_active=%s fast_lane_corrections=%d",
+            request_id,
+            request.session_id,
+            risk.session_risk,
+            risk.session_band or 1,
+            session_ctx.get("ewma", 0.0),
+            session_ctx.get("peak", 0.0),
+            session_ctx.get("turn_count", 0),
+            session_ctx.get("contamination_active", False),
+            session_ctx.get("fast_lane_correction_count", 0),
+        )
+
+    # Entity reconstruction check: detect PII split across turns.
+    # Run after risk is computed; positive result boosts the NEXT turn's signal
+    # (via the pii_fragment parameter of update_session) rather than retroactively
+    # re-scoring this turn.
+    if (
+        request.session_id
+        and os.environ.get("CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED", "").lower() == "true"
+    ):
+        try:
+            import re
+            from backend.risk.session_store import get_session_store
+            from backend.risk.accumulator import check_entity_reconstruction
+            from backend.detectors.pii import _VALUE_PATTERNS
+
+            def _pii_check(text: str):
+                class _Result:
+                    triggered = any(
+                        re.search(p, text, re.I) for p in _VALUE_PATTERNS.values()
+                    )
+                return _Result()
+
+            _state = get_session_store().get(request.session_id)
+            if _state:
+                _recon = check_entity_reconstruction(_state, _pii_check)
+                if _recon:
+                    logger.info(
+                        "entity_reconstruction_triggered request_id=%s session_id=%s turn_count=%d",
+                        request_id,
+                        request.session_id,
+                        _state.turn_count,
+                    )
+        except Exception:
+            pass  # fail closed
+    # --- End Phase 9 session hooks ---
+
     # 9. Async path — fire and forget with DB tracking (Section 5.8)
     async_job_id: str = f"async-{request_id[:8]}"
+    
+    fast_async_detectors = [d for d in DETECTOR_REGISTRY.values() if getattr(d, 'fast_async', False)]
+    fast_lane_pending = len(fast_async_detectors) > 0
+
     try:
         db.create_job(async_job_id, request_id)
         from backend.async_pipeline.publisher import publish_event
         # Include response in async analysis request so engines have full interaction context
         async_request = request.model_copy(update={"response": sanitized or candidate_response})
         await publish_event(request_id, async_request, async_job_id)
+        
+        if fast_lane_pending:
+            background_tasks.add_task(run_fast_lane, async_request, async_job_id)
+            
     except Exception as exc:
         logger.warning("Async publish failed (non-blocking): %s", exc)
 
@@ -190,11 +325,12 @@ async def govern(
     try:
         from rag.policy.policy_rag import get_policy_evidence
         pe = get_policy_evidence(
-            role=request.user_role or "user",
-            app=request.application_id or "default",
-            dept=request.department or "General",
-            matched_rule=policy.policy_id if policy else "",
-            data_class=request.data_classification or "PUBLIC",
+            user_role=request.user_role or "user",
+            application_id=request.application_id or "default",
+            department=request.department or "General",
+            matched_rule_description=policy.policy_id if policy else "",
+            data_classification=request.data_classification or "PUBLIC",
+            action=decision.action if decision else "ALLOW",
         )
         policy_evidence = pe.model_dump(mode="json")
     except Exception as exc:
@@ -209,6 +345,9 @@ async def govern(
         sanitized_response=sanitized,
         async_job_id=async_job_id,
         policy_evidence=policy_evidence,
+        fast_lane_pending=fast_lane_pending,
+        session_risk=risk.session_risk,
+        session_band=risk.session_band,
         latency_ms=round(latency_ms, 2),
     )
 
@@ -223,6 +362,7 @@ class ChatRequest(BaseModel):
     application_id: str = "support-bot"
     prompt: str
     data_classification: Optional[str] = "PUBLIC"
+    session_id: Optional[str] = None  # Phase 9 — pass through to GovernanceRequest
 
 
 class ChatResponse(BaseModel):
@@ -241,6 +381,7 @@ async def chat(payload: ChatRequest, _api_key: str = Depends(verify_api_key)):
         application_id=payload.application_id,
         prompt=payload.prompt,
         data_classification=payload.data_classification,
+        session_id=payload.session_id,
     )
     gov_resp = await govern(gov_req, _api_key)
 

@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from backend.shared.schemas import GovernanceRequest, DetectorResult, RiskAssessment
 
 CRITICAL_APPS = {"loan-decision", "hiring-decision", "medical-decision"}
 HIGH_SENSITIVITY = {"HIGH", "RESTRICTED"}
+
+# ---------------------------------------------------------------------------
+# Phase 9 gate — must be checked before every accumulator call
+# ---------------------------------------------------------------------------
+
+def _session_accumulator_enabled() -> bool:
+    """Returns True only when the env var is explicitly set to 'true'.
+
+    Default-off is load-bearing: with this unset, the accumulator branch in
+    calculate_risk() never executes even if session_id is present on the request
+    -- this is what keeps the byte-for-byte-unchanged-by-default guarantee
+    intact without relying on session_id being absent as the only safety net.
+    """
+    return os.environ.get("CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED", "").lower() == "true"
 
 # A context-only "worth flagging for audit" baseline. Deliberately far below
 # every risk_at_least threshold in policies/*.yaml (0.25, 0.75, 0.8) -- see
@@ -115,6 +130,47 @@ def calculate_risk(
     if request.data_classification:
         contextual_factors["data_classification"] = request.data_classification
 
+    # --- SESSION ACCUMULATOR (Phase 9 — additive, gated, default-off) ---
+    # This branch is the one deliberate touch to this previously off-limits file.
+    # It is purely additive: zero lines above are removed or altered.
+    # Verification: `git diff backend/risk/engine.py` should show only new lines.
+    session_risk = None
+    session_band = None
+
+    if request.session_id and _session_accumulator_enabled():
+        try:
+            from backend.risk.accumulator import update_session, load_accumulator_config
+            from backend.risk.session_store import get_session_store
+
+            cfg = load_accumulator_config()
+            state = update_session(
+                store=get_session_store(),
+                session_id=request.session_id,
+                turn_signal=overall_risk,
+                fast_lane_correction_fired=bool(
+                    (context or {}).get("fast_lane_corrections", 0)
+                ),
+                tool_name=(request.tools_requested[0] if request.tools_requested else None),
+                data_classification=request.data_classification,
+                cfg=cfg,
+            )
+            session_risk = round(state.session_risk, 3)
+            session_band = state.last_band
+            # Carry detailed session telemetry through contextual_factors so
+            # main.py can log it without re-fetching the store.
+            contextual_factors["session"] = {
+                "ewma": round(state.ewma_score, 4),
+                "peak": round(state.peak_score, 4),
+                "turn_count": state.turn_count,
+                "contamination_active": state.contamination_active,
+                "fast_lane_correction_count": state.fast_lane_correction_count,
+            }
+        except Exception:
+            # Fail closed: any accumulator error must not affect the existing
+            # per-turn risk path. session_risk/session_band stay None.
+            pass
+    # --- END SESSION ACCUMULATOR ---
+
     return RiskAssessment(
         request_id=request.request_id,
         detector_results=detector_results,
@@ -122,4 +178,6 @@ def calculate_risk(
         dimensions=dimensions,
         overall_risk=round(overall_risk, 3),
         confidence=round(confidence, 3),
+        session_risk=session_risk,
+        session_band=session_band,
     )

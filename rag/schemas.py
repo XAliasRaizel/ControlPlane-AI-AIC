@@ -68,3 +68,4 @@ class AskControlPlaneAnswer(BaseModel):
     citations: list[RetrievedChunk] = Field(default_factory=list)
     status: EvidenceStatus
     confidence: float
+    generation_mode: str = "extractive"  # "extractive" | "groq"

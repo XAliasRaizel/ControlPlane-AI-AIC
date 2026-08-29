@@ -442,11 +442,16 @@ with tab_ask:
             st.markdown(q_item["question"])
         with st.chat_message("assistant"):
             st.markdown(q_item["answer"])
+            mode = q_item.get("generation_mode", "extractive")
+            st.caption(f"Mode: `{'🤖 Groq LLM' if mode == 'groq' else '📄 Extractive RAG'}`")
             if q_item.get("citations"):
                 with st.expander(f"📚 View Citations ({len(q_item['citations'])})"):
                     for c in q_item["citations"]:
-                        st.markdown(f"**Source:** `{c.get('source')}` (Relevance: `{c.get('score', 0.0):.2f}`)")
-                        st.caption(c.get("snippet", ""))
+                        src = c.get("metadata", {}).get("source") or c.get("source") or "Policy Knowledge Base"
+                        score = c.get("score", 0.0)
+                        text = c.get("text") or c.get("snippet", "")
+                        st.markdown(f"**Source:** `{src}` · Relevance: `{score:.2f}`")
+                        st.caption(text)
 
     ask_prompt = st.chat_input("Ask about policies (e.g. 'What is our policy on PII in Finance?', 'What are GDPR lawful processing rules?')", key="ask_input_chat")
     if ask_prompt:
@@ -458,18 +463,24 @@ with tab_ask:
                 data = r.json()
                 ans_text = data.get("answer", "No answer returned.")
                 citations = data.get("citations", [])
+                gen_mode = data.get("generation_mode", "extractive")
                 st.session_state.ask_messages.append({
                     "question": ask_prompt,
                     "answer": ans_text,
                     "citations": citations,
+                    "generation_mode": gen_mode,
                 })
                 with st.chat_message("assistant"):
                     st.markdown(ans_text)
+                    st.caption(f"Mode: `{'🤖 Groq LLM' if gen_mode == 'groq' else '📄 Extractive RAG'}`")
                     if citations:
                         with st.expander(f"📚 View Citations ({len(citations)})"):
                             for c in citations:
-                                st.markdown(f"**Source:** `{c.get('source')}` (Relevance: `{c.get('score', 0.0):.2f}`)")
-                                st.caption(c.get("snippet", ""))
+                                src = c.get("metadata", {}).get("source") or c.get("source") or "Policy Knowledge Base"
+                                score = c.get("score", 0.0)
+                                text = c.get("text") or c.get("snippet", "")
+                                st.markdown(f"**Source:** `{src}` · Relevance: `{score:.2f}`")
+                                st.caption(text)
             else:
                 st.error(f"Error {r.status_code}: {r.text}")
         except Exception as e:
