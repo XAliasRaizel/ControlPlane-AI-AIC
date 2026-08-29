@@ -126,6 +126,7 @@ class _SimpleVectorStore:
 
 class VectorStore:
     def __init__(self, collection_name: str, persist_dir: str | None = None):
+        self.collection_name = collection_name
         self.persist_dir = Path(persist_dir or rag_settings.vector_store_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         
@@ -133,14 +134,28 @@ class VectorStore:
             try:
                 self._client = chromadb.PersistentClient(path=str(self.persist_dir))
                 self._collection = self._client.get_or_create_collection(
-                    name=collection_name,
+                    name=self.collection_name,
                     metadata={"hnsw:space": "cosine"},
                 )
                 self._fallback = None
             except Exception:
-                self._fallback = _SimpleVectorStore(collection_name, self.persist_dir)
+                self._fallback = _SimpleVectorStore(self.collection_name, self.persist_dir)
         else:
-            self._fallback = _SimpleVectorStore(collection_name, self.persist_dir)
+            self._fallback = _SimpleVectorStore(self.collection_name, self.persist_dir)
+
+    def _get_collection(self):
+        if self._fallback is not None:
+            return None
+        try:
+            # Test if current collection reference is active
+            self._collection.count()
+            return self._collection
+        except Exception:
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
+            return self._collection
 
     def upsert(
         self,
@@ -159,7 +174,8 @@ class VectorStore:
             {k: ("" if v is None else v) for k, v in m.items()} or {"_empty": True}
             for m in metadatas
         ]
-        self._collection.upsert(
+        col = self._get_collection()
+        col.upsert(
             ids=ids,
             documents=texts,
             embeddings=[list(map(float, e)) for e in embeddings],
@@ -178,7 +194,9 @@ class VectorStore:
         n = self.count()
         if n == 0:
             return []
-        result = self._collection.query(
+        
+        col = self._get_collection()
+        result = col.query(
             query_embeddings=[list(map(float, query_embedding))],
             n_results=min(top_k, n),
             where=where or None,
@@ -195,13 +213,27 @@ class VectorStore:
     def count(self) -> int:
         if self._fallback is not None:
             return self._fallback.count()
-        return self._collection.count()
+        col = self._get_collection()
+        return col.count()
 
     def reset(self) -> None:
         if self._fallback is not None:
             self._fallback.reset()
             return
-        self._client.delete_collection(self._collection.name)
+        try:
+            col = self._get_collection()
+            cnt = col.count()
+            if cnt > 0:
+                existing = col.get()
+                if existing and existing.get("ids"):
+                    col.delete(ids=existing["ids"])
+                    return
+        except Exception:
+            pass
+        try:
+            self._client.delete_collection(self.collection_name)
+        except Exception:
+            pass
         self._collection = self._client.get_or_create_collection(
-            name=self._collection.name, metadata={"hnsw:space": "cosine"}
+            name=self.collection_name, metadata={"hnsw:space": "cosine"}
         )

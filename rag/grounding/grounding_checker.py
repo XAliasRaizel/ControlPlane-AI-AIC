@@ -25,7 +25,7 @@ _retriever: Retriever | None = None
 
 def _get_retriever() -> Retriever:
     global _retriever
-    if _retriever is None:
+    if _retriever is None or not getattr(_retriever.embedder, "is_fitted", False):
         if not _GROUNDING_EMBEDDER_PATH.exists():
             try:
                 from rag.ingestion.ingest import ingest

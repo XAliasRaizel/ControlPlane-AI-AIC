@@ -30,7 +30,7 @@ _audit_retriever: Retriever | None = None
 
 def _get_policy_retriever() -> Retriever:
     global _policy_retriever
-    if _policy_retriever is None:
+    if _policy_retriever is None or not getattr(_policy_retriever.embedder, "is_fitted", False):
         if not _POLICY_EMBEDDER_PATH.exists():
             try:
                 from rag.ingestion.ingest import ingest

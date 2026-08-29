@@ -34,7 +34,7 @@ def _get_retriever() -> Retriever:
     """Lazy singleton: load the persisted, already-fitted policy index once
     per process, not on every call (Section 7: don't rebuild on startup)."""
     global _retriever
-    if _retriever is None:
+    if _retriever is None or not getattr(_retriever.embedder, "is_fitted", False):
         if not _POLICY_EMBEDDER_PATH.exists():
             try:
                 from rag.ingestion.ingest import ingest
