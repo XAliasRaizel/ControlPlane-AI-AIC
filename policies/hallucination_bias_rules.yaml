@@ -1,0 +1,68 @@
+# policies/hallucination_bias_rules.yaml
+#
+# Additive policy rules for the two new signals: hallucination_fast /
+# grounding (async), and bias_fast / fairness (async).
+# NOTE: scope is set to "hallucination_bias" so the existing
+# policy_engine.py loader (which validates rules against a specific schema)
+# can skip this file the same way it skips agent_tools.yaml.
+
+version: 1
+scope: hallucination_bias
+rules:
+  - id: global-hallucination-high-risk
+    when:
+      signal: hallucination.hallucination_score
+      operator: ">="
+      value: 0.7
+    action: HUMAN_REVIEW
+    reason: "High hallucination risk: response contains claims the grounding engine could not verify"
+
+  - id: global-hallucination-medium-risk
+    when:
+      signal: hallucination.hallucination_score
+      operator: ">="
+      value: 0.4
+    action: MODIFY
+    modify_strategy: append_uncertainty_disclaimer
+    reason: "Moderate hallucination risk -- response allowed through but flagged to the end user"
+
+  - id: global-bias-causal-pattern
+    when:
+      detector: bias_fast
+      label: protected_attribute_cited_in_decision
+    action: BLOCK
+    reason: "Protected attribute cited as an explicit basis for a covered decision (ECOA / Title VII / EU AI Act exposure)"
+
+  - id: global-bias-async-high-risk
+    when:
+      signal: fairness.bias_score
+      operator: ">="
+      value: 0.6
+    action: HUMAN_REVIEW
+    reason: "High bias risk from the counterfactual probe or LLM-judge rubric"
+
+  - id: finance-loan-decision-counterfactual-required
+    when:
+      use_case_tag: loan_decision
+      app_criticality: high
+    require:
+      - async_engine: fairness
+        enable_counterfactual: true
+    reason: "Loan/credit decisions must run the counterfactual fairness probe -- direct ECOA / Fair Housing Act exposure"
+
+  - id: finance-hallucination-stricter-threshold
+    when:
+      signal: hallucination.hallucination_score
+      operator: ">="
+      value: 0.3
+    action: HUMAN_REVIEW
+    reason: "Financial decision-support has a lower hallucination tolerance than the global default (0.3 vs 0.4)"
+
+  - id: hr-copilot-hallucination-employee-data
+    when:
+      signal: hallucination.hallucination_score
+      operator: ">="
+      value: 0.5
+      data_classification: HIGH
+    action: BLOCK
+    reason: "Unverifiable claims about employee-identifiable data are blocked outright, not just flagged, given downstream HR/legal use"
