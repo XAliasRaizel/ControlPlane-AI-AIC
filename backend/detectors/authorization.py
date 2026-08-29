@@ -12,6 +12,7 @@ from backend.shared.sensitive_terms import (
     check_safety_net,
 )
 from backend.detectors.base import BaseDetector, register
+from backend.shared.model_backend import consult_sensitive_intent
 
 
 @register
@@ -42,6 +43,17 @@ class AuthorizationDetector(BaseDetector):
                                      for perm in auth_context)
                 if not has_any_access:
                     denied_resources.append("unrecognized_sensitive_data")
+
+        # Semantic Override (Phase 10):
+        # If we have keyword matches but the semantic matcher says this is an aggregate/general query
+        # (margin < threshold -> fires=False), suppress the keyword match.
+        if denied_resources:
+            intent_result = consult_sensitive_intent(request.prompt)
+            if intent_result is not None:
+                _, fires = intent_result
+                if not fires:
+                    # Semantic matcher determined this is NOT a targeted request
+                    denied_resources = []
 
         score = 1.0 if denied_resources else 0.0
         confidence = 0.99 if denied_resources else 0.98

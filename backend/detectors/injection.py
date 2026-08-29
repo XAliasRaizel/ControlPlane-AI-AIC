@@ -10,6 +10,7 @@ known bypass techniques.
 import re
 from backend.shared.schemas import DetectorResult, GovernanceRequest
 from backend.detectors.base import BaseDetector, register
+from backend.shared.model_backend import consult
 
 
 @register
@@ -65,6 +66,19 @@ class InjectionDetector(BaseDetector):
         score = min(1.0, 0.9 + 0.05 * (len(evidence) - 1)) if evidence else 0.0
         confidence = 0.95 if evidence else 0.90
         label = "INJECTION_DETECTED" if evidence else "CLEAN"
+
+        # Optional, default-OFF learned consult. Returns None (leaving the regex
+        # verdict untouched) unless CONTROLPLANE_MODEL_INJECTION points at a
+        # calibrated artifact and the ML stack is installed. Model risk only
+        # raises the score / promotes the label; it never lowers regex signal.
+        prediction = consult("injection", request.prompt)
+        if prediction is not None:
+            model_score = prediction["score"]
+            score = max(score, model_score)
+            if prediction["fires"]:
+                label = "INJECTION_DETECTED"
+                confidence = max(confidence, prediction["confidence"])
+            evidence = list(evidence) + [f"model:injection:{model_score:.2f}"]
 
         return DetectorResult(
             detector_name=self.name,

@@ -62,6 +62,11 @@ async def process_async(
     }
 
     try:
+        job = db.get_job(effective_job_id)
+        if job and job.get("result"):
+            existing = job["result"]
+            if isinstance(existing, dict):
+                combined.update({k: v for k, v in existing.items() if k not in combined})
         db.update_job(effective_job_id, "COMPLETED", combined)
         logger.info("Async job %s persisted for request %s", effective_job_id, request_id)
     except Exception as exc:

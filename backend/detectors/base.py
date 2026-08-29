@@ -24,6 +24,7 @@ class BaseDetector(ABC):
 
     name: str  # unique key, e.g. "pii"
     hot_path: bool = True  # False = async-only, for expensive detectors
+    fast_async: bool = False  # True = runs out-of-band but immediately for fast correction
 
     @abstractmethod
     async def analyze(

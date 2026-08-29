@@ -1,0 +1,9 @@
+{
+  "task": "injection",
+  "temperature": 1.0,
+  "threshold": 0.5,
+  "positive_label": "INJECTION_DETECTED",
+  "positive_index": 1,
+  "max_length": 256,
+  "base_model": "protectai/deberta-v3-base-prompt-injection-v2"
+}

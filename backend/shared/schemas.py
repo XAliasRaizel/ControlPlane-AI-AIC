@@ -41,6 +41,8 @@ class GovernanceRequest(BaseModel):
     tools_requested: list[str] = Field(default_factory=list)
     retrieved_context: list[str] = Field(default_factory=list)
     data_classification: Optional[str] = None  # e.g. "PUBLIC" | "INTERNAL" | "HIGH"
+    fast_lane_webhook: Optional[str] = None
+    session_id: Optional[str] = None  # NEW (Phase 9) — session tracking key for the accumulator
 
     # --- Backward-compatibility aliases (old field names accepted on input) ---
     # These are NOT persisted; they populate the canonical fields above via
@@ -74,6 +76,8 @@ class RiskAssessment(BaseModel):
     dimensions: dict[str, float] = Field(default_factory=dict)  # {"privacy": 0.9, ...}
     overall_risk: float
     confidence: float
+    session_risk: Optional[float] = None   # NEW (Phase 9) — max(EWMA, peak); None when accumulator disabled
+    session_band: Optional[int] = None     # NEW (Phase 9) — 1/2/3 (band 4 = existing CRITICAL path, unchanged)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +143,9 @@ class GovernanceResponse(BaseModel):
     sanitized_response: Optional[str] = None
     async_job_id: Optional[str] = None
     policy_evidence: Optional[dict[str, Any]] = None
+    fast_lane_pending: bool = False
+    session_risk: Optional[float] = None   # NEW (Phase 9) — surfaced on response for demo visibility
+    session_band: Optional[int] = None     # NEW (Phase 9)
     latency_ms: float
 
 

@@ -20,6 +20,7 @@ from backend.shared.sensitive_terms import (
     check_safety_net,
 )
 from backend.detectors.base import BaseDetector, register
+from backend.shared.model_backend import consult_presidio
 
 
 @register
@@ -64,6 +65,17 @@ class PIIDetector(BaseDetector):
             confidence = 0.90
             label = "CLEAN"
             evidence = []
+
+        # Optional, default-OFF learned consult for broader entity types
+        # (names, locations, IPs, crypto, etc.) that regex misses.
+        presidio_entities = consult_presidio(text)
+        if presidio_entities:
+            score = max(score, 0.8)
+            label = "PII_DETECTED"
+            confidence = max(confidence, 0.90)
+            evidence = value_hits + request_hits + [f"presidio:{e}" for e in presidio_entities]
+        else:
+            evidence = value_hits + request_hits
 
         return DetectorResult(
             detector_name=self.name,
