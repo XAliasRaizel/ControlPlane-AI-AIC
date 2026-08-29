@@ -9,6 +9,21 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]  # repo root
 
+# Load .env if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_ROOT / ".env")
+except ImportError:
+    _env_file = _ROOT / ".env"
+    if _env_file.exists():
+        with open(_env_file, encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    if _k.strip() not in os.environ:
+                        os.environ[_k.strip()] = _v.strip()
+
 DEFAULT_CORPUS_DIR = _ROOT / "rag" / "corpus"
 DEFAULT_VECTOR_DB_DIR = _ROOT / "rag_store"  # persisted ChromaDB location
 
