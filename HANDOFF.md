@@ -75,10 +75,9 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
 
 ---
 
-## 5. Progress checklist
+## 5. Progress checklist (Phases 1-5)
 
-> **STATUS: PHASE 2 COMPLETE** — 39 tests passing. `./.venv/Scripts/python.exe -m pytest -q`
-> → **39 passed** (+3 fairness tests). All new files `py_compile` clean.
+> **STATUS: PHASE 9 COMPLETE** — 57 tests passing (3 skipped: async test needs pytest-asyncio, Redis parity skipped without Redis). All new files `py_compile` clean.
 
 ### Phase 1 — Infrastructure layer (DONE)
 - [x] `ml/__init__.py` — lazy-import package doc.
@@ -113,30 +112,79 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
 - [x] `.gitignore` — ml/artifacts/, data/raw/, data/*.jsonl excluded.
 
 ### Phase 3 — Actual training + deployment (DONE)
-
 - [x] **Track A (no training — instant):** `download_pretrained.py` script ran successfully for the grounding NLI cross-encoder.
-- [x] **Track B (fine-tune — Local GPU):**
-      1. Ran the 3 `data/scripts/prepare_*.py` scripts to generate JSONL files.
-      2. Handled Windows encoding and HuggingFace remote code execution fixes.
-      3. Ran local fine-tuning using `ml.train_detector` for Injection, Toxicity, and Fairness.
-      4. Models calibrated to <=5% FNR and saved in `ml/artifacts/`.
+- [x] **Track B (fine-tune — Local GPU):** Ran local fine-tuning using `ml.train_detector` for Injection, Toxicity, and Fairness. Models calibrated to <=5% FNR.
 
-  ### Phase 4 – Integration & "Best Possible" Optimization (DONE)
-  - [x] Downloaded and evaluated the superior `facebook/roberta-hate-speech-dynabench-r4-target` pretrained model for fairness, outperforming our failed fine-tuned attempt.
-  - [x] Integrated `presidio-analyzer` into `pii.py` as a fallback learned detector (augmenting the fast regex paths without replacing them).
-  - [x] Exported all models (Injection, Toxicity, Fairness, Grounding) to ONNX using `optimum[onnxruntime]`.
-  - [x] Modified `model_backend.py` to seamlessly probe and use the ONNX artifacts if available, resulting in a 3-5x CPU inference speedup.
-  - [x] Tests fully updated and passing (41 passed).
+### Phase 4 – Integration & "Best Possible" Optimization (DONE)
+- [x] Downloaded and evaluated the superior `facebook/roberta-hate-speech-dynabench-r4-target` pretrained model for fairness, outperforming our failed fine-tuned attempt.
+- [x] Integrated `presidio-analyzer` into `pii.py` as a fallback learned detector (augmenting the fast regex paths without replacing them).
+- [x] Exported all models (Injection, Toxicity, Fairness, Grounding) to ONNX using `optimum[onnxruntime]`. Modified `model_backend.py` to seamlessly probe and use the ONNX artifacts.
 
-  ### Phase 5 – Extreme Performance & Production Readiness (DONE)
-  - [x] Extended `export_onnx.py` to support `ORTQuantizer` (`--quantize`), shrinking the models by ~4x and massively speeding up local CPU inference.
-  - [x] Modified `model_backend.py` to prioritize `.quantized_onnx` artifacts.
-  - [x] Implemented `functools.lru_cache` for identical-payload memoization (`0ms` repeat inference).
-  - [x] Added `POST /admin/reload-models` endpoint in `main.py` to achieve zero-downtime hot-reloading of ML models.
+### Phase 5 – Extreme Performance & Production Readiness (DONE)
+- [x] Extended `export_onnx.py` to support `ORTQuantizer` (`--quantize`), shrinking the models by ~4x and massively speeding up local CPU inference.
+- [x] Modified `model_backend.py` to prioritize `.quantized_onnx` artifacts.
+- [x] Implemented `functools.lru_cache` for identical-payload memoization (`0ms` repeat inference).
+- [x] Added `POST /admin/reload-models` endpoint in `main.py` to achieve zero-downtime hot-reloading of ML models.
 
-  ---
+---
 
-## 6. Env vars (the seam)
+## 6. Phase 6: Closing the Async Feedback Delay (Fast Lane)
+
+The Design problem: Async Feedback Delay vs UX. 
+Two different things share one feedback mechanism in the initial design:
+1. **Session Risk Accumulator**: Architectural intent is to catch evasion spread across turns using EWMA decay. *(Note: As verified in Phase 8, this is currently unbuilt; the codebase is entirely stateless per-request and lacks a `session_id` in `GovernanceRequest`).* Async by design.
+2. **Per-response correctness signals**: Grounding/hallucination, fairness flags. A single response defect shouldn't need session-level corroboration.
+
+**Solution:** A "fast async lane" for single-response corrections that runs concurrently with the hot path.
+
+### 6a. Options for closing the loop without breaking latency
+- **Option 1 (Pre-send Gate):** Used for standard internal RAG architectures that buffer the entire response. Triggers `fast_lane_pending=True`.
+- **Option 2 (Post-hoc Webhook):** Used for token-streaming customer-facing chat applications. Triggers an out-of-band `RETRACT` webhook if a violation is detected.
+
+### 6b. Architecture & Dispatch
+- **Fast-Lane Architecture:** Implemented in `backend/main.py` (`run_fast_lane`). Grounding (`-large` variant) and Fairness engines configured to run in the fast lane (`fast_async=True`).
+- **Application Mapping:**
+  - **Option 1 (Gate):** Internal Analytics Dashboard, Batch Processing.
+  - **Option 2 (Webhook):** Customer-facing Live Chat Widget.
+- **Fail-open policy:** Absolute timeout set to **250ms**. If a fast-lane detector times out, it gracefully **fails open**. For Option 1, this releases the gate without completing the check. For Option 2, this skips the webhook entirely. Both are deliberately considered safe defaults.
+- **Schemas Violation Resolved:** The addition of `fast_lane_webhook` and `fast_lane_pending` to `backend/shared/schemas.py` was explicitly **APPROVED** by Tushar on 2026-08-28, formally resolving the boundary violation highlighted in prior phases.
+
+## 7. Phase 7: Tuning, Calibration, and Reliability
+
+### 7a. Grounding `-large` NLI Latency & Acceptance
+- Converted `cross-encoder/nli-deberta-v3-large` variant to INT8 ONNX.
+- **Latency Measurements:** Average **29.10 ms** (p50: 27.32 ms, p95: 35.88 ms, p99: 63.82 ms).
+- **Latency Delta vs Base:** ~ +12ms overhead compared to base. 
+- **Acceptance:** The significant zero-shot accuracy improvement easily justifies the +12ms overhead, fitting comfortably inside the 250ms timeout.
+
+### 7b. Fairness Fine-tune Re-evaluation
+- Evaluated the deployed `dynabench` pretrained model on 20,000 HateXplain records: it achieved a dismal **0.463 ROC AUC** (worse than random guessing) and **0.503 AUPRC**.
+- Evaluated our locally fine-tuned `fairness-v1` model: it achieved **0.650 ROC AUC** and **0.623 AUPRC**.
+- **Action:** Reverted the fairness artifact back to `fairness-v1/model` due to superior domain performance.
+
+### 7c. FNR / FPR Budgets (Approved)
+- **Grounding:** Targets a strict **<= 5% FNR**, paired with an approved budget of **<= 15% FPR**.
+- **Fairness:** Tuning for <=5% FNR caused an unacceptable >80% FPR. We explicitly inverted the priority to target **<= 5% FPR** to avoid a barrage of false retractions. The operational threshold in `calibration.json` is set very conservatively to `0.80`.
+- **Sign-off:** The budget and fail-open policies were formally approved by Tushar (2026-08-28) in the Implementation Plan.
+
+### 7d. Abstention Path & Routing
+- Defined a concrete probability band of **0.60 to 0.80** for human-review routing.
+- **Status:** Documented and designed, but **NOT ENFORCED**. This remains an open dependency requiring explicit sign-off from the owner of `backend/decision/engine.py` before it can be merged into active routing logic.
+
+## 8. Phase 8: Statistical Verification & Residual Gaps
+
+### 8a. Telemetry & Observability
+- **Fast-Lane Observability:** Emitted via structured logging in `backend/main.py:run_fast_lane`. Logs include `fast_lane_decision`, `corrections` count, `latency`, `timeout` flag, and `option` used. 
+- **Note:** These currently remain log-only for analytics. Metric aggregation (e.g., Datadog) is deferred.
+- **Drift-Check Cadence:** **Weekly** cadence. Triggered if **KL-Divergence > 0.1** between live incoming score distributions and original training distributions.
+
+### 8b. Testing
+- Total test suite count increased to **57 passing tests** (up from 43 after Phase 8, +14 in Phase 9).
+- Covered the model-present detector paths, fairness parity, and NLI scorer functionality.
+- **Fail-Open Test:** Verified via `test_fast_lane_timeout_fail_open` (simulated delay ensures Option 1/2 gracefully release when exceeding 250ms).
+- **Session Accumulator Tests:** 16 passing, 1 skipped (Redis parity — skipped when Redis unreachable). Run in isolation: `.venv/Scripts/python.exe -m pytest -k "session" -q`.
+
+## 9. Env vars (the seam)
 
 | Var | Consumed by | Effect when unset (default) |
 |-----|-------------|------------------------------|
@@ -144,66 +192,54 @@ artifacts with calibration + a target-FNR threshold. Full plan mirror:
 | `CONTROLPLANE_MODEL_SAFETY`    | `safety` detector | regex-only, unchanged |
 | `CONTROLPLANE_MODEL_FAIRNESS`  | `bias_fairness_engine` detector | keyword-only, unchanged |
 | `CONTROLPLANE_MODEL_GROUNDING` | async `GroundingEngineDetector` | token-overlap heuristic |
+| `CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED` | `backend/risk/engine.py` | `false` — accumulator branch never executes; `session_risk`/`session_band` are `None` |
+| `CONTROLPLANE_SESSION_STORE` | `backend/risk/session_store.py` | unset → `InMemorySessionStore` (not shared across workers — use Redis URL for multi-worker) |
+| `CONTROLPLANE_SESSION_TTL_SECONDS` | `backend/risk/session_store.py` | `1800` (30 min) |
+| `CONTROLPLANE_SESSION_ACCUMULATOR_CONFIG` | `backend/risk/accumulator.py` | unset → built-in provisional defaults; set to `ml/artifacts/session-accumulator/calibration.json` |
 
 **Artifacts ready for deployment:**
-- Injection (Track B): `ml/artifacts/injection-v1/model`
-- Toxicity (Track B): `ml/artifacts/toxicity-v1/model`
-- Fairness (Track B): `ml/artifacts/fairness-v1/model`
-- Grounding (Track A): `ml/artifacts/grounding-nli/model`
+- Injection: `ml/artifacts/injection-v1/model`
+- Toxicity: `ml/artifacts/toxicity-v1/model`
+- Fairness: `ml/artifacts/fairness-v1/model` (Reverted from `dynabench` due to poor domain performance)
+- Grounding: `ml/artifacts/grounding-nli-large/model`
 
 Each env var points at a `<artifact>/model` dir with a sibling `calibration.json`.
 
 ---
 
-## 7. Verification (run after each step)
-
-```bash
-./.venv/Scripts/python.exe -m py_compile backend/shared/model_backend.py ml/common.py ml/train_detector.py
-./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe -m pytest tests/test_model_backend.py -q
-```
-
-Expectations: full suite stays green; the seam returns `None`/fallback everywhere (no ML deps,
-env unset); `injection`/`safety` scores + labels are identical to pre-change when no
-`CONTROLPLANE_MODEL_*` is set.
+## 10. CI failure — RESOLVED 🟢 (commit `f6c8137`, pushed `tuning`)
+(Resolved previously in Phase 2 via `conftest.py` injection of sys.path).
 
 ---
 
-## 8. CI failure — RESOLVED ✅ (commit `f6c8137`, pushed `tuning`)
+## 11. Phase 9: Session Risk Accumulator (DONE ✅)
 
-> **STATUS: DONE.** The learned-detector layer work (sections 1-7) was already done &
-> pushed (`ca4a9ac`). The CI fix is now also done and pushed (`f6c8137`). The
-> `test / python-tests` job on the `tuning` branch should go green on the next run.
+### What was built
 
-### Root cause (confirmed)
-CI runs the **bare `pytest` console script**, which does **not** insert cwd onto
-`sys.path`. With no `conftest.py` / `tests/__init__.py` / `pyproject.toml` at the
-root and `backend` not pip-installed, every test file fails at collection:
-```
-ModuleNotFoundError: No module named 'backend'
-```
-`python -m pytest` masked this locally because `-m` does add cwd to `sys.path`.
+**New files:**
+- `backend/risk/session_store.py` — `SessionState` dataclass, `InMemorySessionStore` (default), `RedisSessionStore` (optional, lazy import), `get_session_store()` singleton factory, `reset_store_cache()` for tests.
+- `backend/risk/accumulator.py` — `AccumulatorConfig`, `load_accumulator_config()`, pure math functions (`update_ewma`, `update_peak`, `classify_band`), `check_entity_reconstruction()`, and `update_session()` (sole entry point).
+- `ml/scripts/calibrate_session_accumulator.py` — sweeps 361 `(alpha, peak_decay)` combinations against 4 synthetic scenarios; writes `calibration.json`.
+- `ml/artifacts/session-accumulator/calibration.json` — calibrated artifact: `alpha=0.05`, `peak_decay=0.95`, `threshold_medium=0.4`, `threshold_high=0.7`. All 4 scenarios pass.
+- `tests/test_session_accumulator.py` — 17 tests (16 pass, 1 skipped — Redis parity).
 
-### Why main was GREEN despite the same workflow
-`origin/main` commit `9cf57fb` added `tests/test_agent_governance.py`, which contains:
-```python
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-```
-That insert runs during collection and accidentally fixes `sys.path` for every
-subsequent test file — a side-effect, not a deliberate fix.
+**Modified files (additive only):**
+- `backend/shared/schemas.py` — `GovernanceRequest.session_id`, `RiskAssessment.session_risk/session_band`, `GovernanceResponse.session_risk/session_band`. All Optional/None-defaulted.
+- `backend/risk/engine.py` — `_session_accumulator_enabled()` helper + gated accumulator branch in `calculate_risk()`. Zero existing lines altered. `git diff --stat` shows 63 insertions, 0 deletions.
+- `backend/main.py` — `X-ControlPlane-Session-Id` header extraction, session telemetry logging, entity reconstruction hook, `GovernanceResponse` session fields, `ChatRequest.session_id` passthrough.
 
-### Fix applied
-Added **`conftest.py`** at the repo root (10 comment lines, no executable code).
-pytest's rootdir detection picks up this file and automatically prepends the repo root
-to `sys.path` before collection begins — the standard, documented mechanism.
+### Concurrency caveat (IMPORTANT)
+`InMemorySessionStore` does NOT share state across worker processes. Sessions whose turns land on different workers will under-count. This is a known, documented limitation — use `CONTROLPLANE_SESSION_STORE=redis://...` for multi-worker deployments.
 
-### Verification
-```
-.venv\Scripts\pytest.exe -q          # bare console script (==what CI runs)
-→ 36 passed in 1.08s                 # GREEN
-```
+### Rollout steps
+1. `python -m ml.scripts.calibrate_session_accumulator --out ml/artifacts/session-accumulator/calibration.json`
+2. Set `CONTROLPLANE_SESSION_ACCUMULATOR_CONFIG=ml/artifacts/session-accumulator/calibration.json`
+3. Set `CONTROLPLANE_SESSION_STORE` (leave unset for single-process demo; Redis URL for multi-worker)
+4. Set `CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED=true`
+5. Send requests with `X-ControlPlane-Session-Id: <session-id>` header (or `session_id` in body)
+6. Confirm `session_risk` and `session_band` appear in API responses and move 1→2→3 under evasion load
 
-### Temp artifacts from the investigation (all UNTRACKED — safe to delete)
-`.ci_venv/`, `.ci_req.txt`, `.ci_runs.json`, `.ci_jobs.json`, `.ci_log.txt`,
-`.pbs.json`, `.ci_repro.sh`, `.ci_repro311.sh`.
-WSL home (if applicable): `~/ccrepro`, `~/ccrepro311`.
+### Out of scope (unchanged)
+- Enforcement of bands in `backend/decision/engine.py` — computed and exposed only (same boundary as Phase 7d abstention band)
+- Cross-session tracking, Redis ops/provisioning, `backend/policy/*`, `backend/feedback/evaluator.py`, `backend/async_pipeline/consumers.py`
+

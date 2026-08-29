@@ -241,7 +241,7 @@ def main() -> None:
 
     # Recommended threshold for 5% FNR target
     op = select_threshold_for_fnr(scores, labels, target_fnr=0.05)
-    print(f"\n  [TIP] Threshold for ≤5% FNR: {op['threshold']:.4f}  "
+    print(f"\n  [TIP] Threshold for <=5% FNR: {op['threshold']:.4f}  "
           f"(FNR={op['fnr']:.4f}, FPR={op['fpr']:.4f}, met={op['target_met']})")
 
     # Threshold sweep
