@@ -26,6 +26,12 @@ _retriever: Retriever | None = None
 def _get_retriever() -> Retriever:
     global _retriever
     if _retriever is None:
+        if not _GROUNDING_EMBEDDER_PATH.exists():
+            try:
+                from rag.ingestion.ingest import ingest
+                ingest()
+            except Exception:
+                pass
         embedder = get_embedder()
         if isinstance(embedder, LocalTfidfEmbedder) and _GROUNDING_EMBEDDER_PATH.exists():
             embedder.load(_GROUNDING_EMBEDDER_PATH)

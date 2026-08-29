@@ -101,15 +101,22 @@ def ingest_grounding_corpus() -> int:
     return len(chunks)
 
 
-def main():
-    repo_root = Path(__file__).resolve().parents[2]
+def ingest(repo_root: Path | None = None) -> tuple[int, int]:
+    if repo_root is None:
+        repo_root = Path(__file__).resolve().parents[2]
     logger.info("Ingesting into %s", rag_settings.vector_store_dir)
     n_policy = ingest_policy_corpus(repo_root)
     n_grounding = ingest_grounding_corpus()
     logger.info("Done. %d policy/regulatory chunks, %d grounding chunks.", n_policy, n_grounding)
+    return n_policy, n_grounding
+
+
+def main():
+    n_policy, n_grounding = ingest()
     if n_policy == 0 or n_grounding == 0:
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
+

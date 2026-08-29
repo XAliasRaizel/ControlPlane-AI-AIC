@@ -35,6 +35,12 @@ def _get_retriever() -> Retriever:
     per process, not on every call (Section 7: don't rebuild on startup)."""
     global _retriever
     if _retriever is None:
+        if not _POLICY_EMBEDDER_PATH.exists():
+            try:
+                from rag.ingestion.ingest import ingest
+                ingest()
+            except Exception:
+                pass
         embedder = get_embedder()
         if isinstance(embedder, LocalTfidfEmbedder) and _POLICY_EMBEDDER_PATH.exists():
             embedder.load(_POLICY_EMBEDDER_PATH)

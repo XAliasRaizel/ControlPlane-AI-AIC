@@ -9,4 +9,3 @@ __pycache__/
 ml/artifacts/
 coverage.xml
 .pytest_cache/
-rag_store/

@@ -14,6 +14,13 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="session")
+def ensure_rag_indexed():
+    """Ensure corpora and policy embeddings are indexed before running test suite."""
+    from rag.ingestion.ingest import ingest
+    ingest()
+
+
 # ---------------------------------------------------------------------------
 # Document loading & YAML parsing
 # ---------------------------------------------------------------------------
