@@ -36,11 +36,28 @@ from backend.risk.session_store import (
 # ---------------------------------------------------------------------------
 
 def _calibration_cfg() -> AccumulatorConfig:
-    """Return calibrated config if the artifact exists, else use defaults."""
+    """Return the calibrated config.
+
+    Loads from the calibration artifact if it exists (local dev / staging).
+    Falls back to the *calibrated* values discovered by the sweep script
+    (alpha=0.05, peak_decay=0.95) rather than _DEFAULT_CONFIG -- so CI stays
+    green even though ml/artifacts/ is gitignored and the JSON is never present
+    in the CI runner.
+    """
     path = os.path.join("ml", "artifacts", "session-accumulator", "calibration.json")
     if os.path.exists(path):
         os.environ["CONTROLPLANE_SESSION_ACCUMULATOR_CONFIG"] = path
-    return load_accumulator_config()
+        return load_accumulator_config()
+    # Calibrated values from ml/scripts/calibrate_session_accumulator.py sweep.
+    # Kept here explicitly so tests are deterministic in CI without the artifact.
+    return AccumulatorConfig(
+        alpha=0.05,
+        peak_decay=0.95,
+        threshold_medium=0.4,
+        threshold_high=0.7,
+        ttl_seconds=1800,
+        fragment_window_turns=5,
+    )
 
 
 def _fresh_store() -> InMemorySessionStore:
