@@ -287,6 +287,84 @@ class GroundingScorer:
         }
 
 
+class SensitiveIntentScorer:
+    """Optional semantic matcher for sensitive query intent (PII/Auth)."""
+
+    def __init__(self, artifact_dir: str | Path):
+        self.artifact_dir = Path(artifact_dir)
+        self._model = None
+        self.threshold = 0.5
+        self.positive_anchors = []
+        self.negative_anchors = []
+        self.pos_embs = []
+        self.neg_embs = []
+        self._read_calibration()
+
+    @classmethod
+    def try_load(cls, artifact_dir: str | Path) -> "Optional[SensitiveIntentScorer]":
+        try:
+            if not Path(artifact_dir).exists():
+                return None
+            return cls(artifact_dir)
+        except Exception:
+            return None
+
+    def _read_calibration(self) -> None:
+        path = _calibration_path(self.artifact_dir)
+        if path is None:
+            return
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.threshold = float(data.get("threshold", 0.5))
+        self.positive_anchors = data.get("positive_anchors", [])
+        self.negative_anchors = data.get("negative_anchors", [])
+
+    def _ensure_model(self) -> bool:
+        if self._model is not None:
+            return True
+        try:
+            from sentence_transformers import SentenceTransformer
+            # Try to load from "model" subdirectory, otherwise from the artifact_dir directly
+            model_path = self.artifact_dir / "model"
+            if not model_path.exists():
+                model_path = self.artifact_dir
+            self._model = SentenceTransformer(str(model_path))
+            
+            # Pre-compute embeddings for anchors
+            if self.positive_anchors:
+                self.pos_embs = self._model.encode(self.positive_anchors, convert_to_numpy=True, show_progress_bar=False).tolist()
+            if self.negative_anchors:
+                self.neg_embs = self._model.encode(self.negative_anchors, convert_to_numpy=True, show_progress_bar=False).tolist()
+            return True
+        except Exception:
+            self._model = None
+            return False
+
+    def _cosine_sim(self, a, b) -> float:
+        dot = sum(x * y for x, y in zip(a, b))
+        na = sum(x * x for x in a) ** 0.5
+        nb = sum(x * x for x in b) ** 0.5
+        if na == 0 or nb == 0:
+            return 0.0
+        return dot / (na * nb)
+
+    def _max_sim(self, query_emb, anchor_embs) -> float:
+        if not anchor_embs:
+            return 0.0
+        return max(self._cosine_sim(query_emb, a) for a in anchor_embs)
+
+    def is_targeted_request(self, text: str) -> Optional[tuple[float, bool]]:
+        """Returns (margin, fires) or None if model unavailable."""
+        if not self._ensure_model():
+            return None
+        try:
+            query_emb = self._model.encode(text, convert_to_numpy=True, show_progress_bar=False).tolist()
+            margin = self._max_sim(query_emb, self.pos_embs) - self._max_sim(query_emb, self.neg_embs)
+            fires = margin >= self.threshold
+            return float(margin), bool(fires)
+        except Exception:
+            return None
+
+
 def reset_cache() -> None:
     """Clear all lazy-loaded models and caches (e.g. for testing or hot-reloading)."""
     with _lock:
@@ -355,6 +433,21 @@ def consult_presidio(text: str) -> list[str]:
         return []
 
 
+@functools.lru_cache(maxsize=1000)
+def consult_sensitive_intent(text: str) -> Optional[tuple[float, bool]]:
+    """Guarded convenience wrapper for sensitive intent detection.
+    
+    Returns (margin, fires) if model is available, otherwise None.
+    """
+    try:
+        scorer = get_sensitive_intent_scorer()
+        if scorer is None:
+            return None
+        return scorer.is_targeted_request(text)
+    except Exception:
+        return None
+
+
 def artifact_dir_for(task: str) -> Optional[str]:
     """Return the configured artifact directory for a task, or None.
 
@@ -409,6 +502,24 @@ def get_grounding_scorer(task: str = "grounding") -> Optional[GroundingScorer]:
         artifact = artifact_dir_for(task)
         if artifact is not None:
             scorer = GroundingScorer.try_load(artifact)
+    except Exception:
+        scorer = None
+    with _lock:
+        _cache[key] = scorer
+    return scorer
+
+
+def get_sensitive_intent_scorer(task: str = "sensitive_intent") -> Optional[SensitiveIntentScorer]:
+    """Cached, never-raising accessor for the sensitive intent scorer."""
+    key = "intent::" + (task or "sensitive_intent")
+    with _lock:
+        if key in _cache:
+            return _cache[key]
+    scorer = None
+    try:
+        artifact = artifact_dir_for(task)
+        if artifact is not None:
+            scorer = SensitiveIntentScorer.try_load(artifact)
     except Exception:
         scorer = None
     with _lock:

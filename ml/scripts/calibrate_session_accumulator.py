@@ -108,20 +108,20 @@ def run_peak_dilution(
         ewma = update_ewma(ewma, benign_signal, alpha)
         peak = update_peak(peak, benign_signal, peak_decay)
         ewma_only_scores.append(round(ewma, 6))
-        if max(ewma, peak) >= threshold_medium:
+        if max(ewma, peak) >= threshold_high:
             survived += 1
 
     ewma_only_at_10 = ewma_only_scores[-1] if ewma_only_scores else 0.0
     # Two conditions: dual-signal survives, AND EWMA-alone would have dropped
-    ewma_would_have_dropped = ewma_only_at_10 < threshold_medium
+    ewma_would_have_dropped = ewma_only_at_10 < threshold_high
     passed = survived >= required_survival_turns and ewma_would_have_dropped
     return ScenarioResult(
         name="peak_dilution",
         passed=passed,
         detail={
-            "turns_survived_at_threshold_medium": survived,
+            "turns_survived_at_threshold_high": survived,
             "ewma_only_at_turn_10": ewma_only_at_10,
-            "ewma_only_below_threshold_medium_at_turn_10": ewma_would_have_dropped,
+            "ewma_only_below_threshold_high_at_turn_10": ewma_would_have_dropped,
             "passed": passed,
         },
     )
@@ -253,9 +253,9 @@ def main() -> None:
     threshold_medium: float = args.threshold_medium
     threshold_high: float = args.threshold_high
 
-    # Sweep grid — intentionally small; scenarios are cheap arithmetic
-    alphas = [round(v * 0.05, 2) for v in range(1, 20)]        # 0.05 .. 0.95
-    peak_decays = [round(1.0 - v * 0.05, 2) for v in range(1, 20)]  # 0.95 .. 0.05
+    # Sweep grid — finer granularity to find peak_decay >= 0.98
+    alphas = [round(v * 0.01, 2) for v in range(1, 100)]        # 0.01 .. 0.99
+    peak_decays = [round(v * 0.01, 2) for v in range(1, 100)]  # 0.01 .. 0.99
 
     print(f"Sweeping {len(alphas)} x {len(peak_decays)} = {len(alphas)*len(peak_decays)} combinations...")
 

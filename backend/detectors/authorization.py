@@ -1,5 +1,6 @@
 from backend.shared.schemas import DetectorResult, GovernanceRequest
 from backend.detectors.base import BaseDetector, register
+from backend.shared.model_backend import consult_sensitive_intent
 
 @register
 class AuthorizationDetector(BaseDetector):
@@ -45,6 +46,17 @@ class AuthorizationDetector(BaseDetector):
         for resource, (permission, terms) in resource_permissions.items():
             if any(term in text for term in terms) and not bool(auth_context.get(permission, False)):
                 denied_resources.append(resource)
+
+        # Semantic Override (Phase 10):
+        # If we have keyword matches but the semantic matcher says this is an aggregate/general query
+        # (margin < threshold -> fires=False), suppress the keyword match.
+        if denied_resources:
+            intent_result = consult_sensitive_intent(request.prompt)
+            if intent_result is not None:
+                _, fires = intent_result
+                if not fires:
+                    # Semantic matcher determined this is NOT a targeted request
+                    denied_resources = []
 
         score = 1.0 if denied_resources else 0.0
         confidence = 0.99 if denied_resources else 0.98
