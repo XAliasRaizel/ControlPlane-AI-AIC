@@ -165,12 +165,17 @@ class TestSynthesizeAnswer:
         from rag.ask_controlplane.chat import synthesize_answer
         from rag.config import RagSettings
         import rag.config as config_mod
+        import rag.ask_controlplane.chat as chat_mod
+        import rag.ask_controlplane.llm_client as llm_mod
 
         # Disable generation
-        monkeypatch.setattr(config_mod, "rag_settings", RagSettings(
+        fake_settings = RagSettings(
             generation_enabled=False,
             groq_api_key="",
-        ))
+        )
+        monkeypatch.setattr(config_mod, "rag_settings", fake_settings)
+        monkeypatch.setattr(chat_mod, "rag_settings", fake_settings)
+        monkeypatch.setattr(llm_mod, "rag_settings", fake_settings)
 
         chunks = _make_chunks(["Annual leave is 18 days per year."])
         answer, mode = synthesize_answer("how many leave days?", chunks)

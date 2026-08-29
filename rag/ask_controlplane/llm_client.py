@@ -50,9 +50,9 @@ class GroqLLMClient:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> None:
-        self.api_key = api_key or rag_settings.groq_api_key
-        self.model = model or rag_settings.groq_model
-        self.max_tokens = max_tokens or rag_settings.groq_max_tokens
+        self.api_key = api_key if api_key is not None else rag_settings.groq_api_key
+        self.model = model if model is not None else rag_settings.groq_model
+        self.max_tokens = max_tokens if max_tokens is not None else rag_settings.groq_max_tokens
         self.temperature = temperature if temperature is not None else rag_settings.groq_temperature
 
     # ------------------------------------------------------------------
