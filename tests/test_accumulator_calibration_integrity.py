@@ -9,8 +9,8 @@ def test_peak_dilution_guarantee():
     after a 0.9 spike, proving peak_dilution is fixed.
     Loads calibration.json to assert against actual prod config values.
     """
-    calib_path = Path("ml/artifacts/session-accumulator/calibration.json")
-    assert calib_path.exists(), "Calibration artifact missing"
+    calib_path = Path(__file__).parent.parent / "ml" / "artifacts" / "session-accumulator" / "calibration.json"
+    assert calib_path.exists(), f"Calibration artifact missing (looked at {calib_path})"
     
     data = json.loads(calib_path.read_text(encoding="utf-8"))
     

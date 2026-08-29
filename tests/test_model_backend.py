@@ -187,22 +187,33 @@ def test_safety_escalates_when_model_fires(monkeypatch):
     assert "safety-model:0.88" in result.evidence
 
 
-def test_grounding_uses_nli_scorer_when_present(monkeypatch):
-    class _FakeScorer:
-        def groundedness(self, response, contexts):
-            return {"risk": 0.8, "weakest_entailment": 0.2,
-                    "claims": [{"claim": "the sky is green", "entailment": 0.2}]}
+def test_grounding_uses_rag_checker_when_available(monkeypatch):
+    """GroundingEngineDetector now uses the RAG grounding pipeline (check_grounding).
+    Verify it returns a HIGH label when claims are unsupported."""
+    from unittest.mock import MagicMock
 
-    monkeypatch.setattr("backend.detectors.async_analytics.get_grounding_scorer",
-                        lambda *a, **k: _FakeScorer())
+    # Build a fake GroundingReport that check_grounding returns
+    fake_claim = MagicMock()
+    fake_claim.status = "UNSUPPORTED"
+    fake_claim.claim = "The sky is green."
+
+    fake_report = MagicMock()
+    fake_report.claims = [fake_claim]
+    fake_report.overall_score = 0.1   # low score -> high risk (1.0 - 0.1 = 0.9)
+    fake_report.overall_status = "UNSUPPORTED"
+
+    monkeypatch.setattr(
+        "rag.grounding.grounding_checker.check_grounding",
+        lambda *a, **k: fake_report,
+    )
     req = GovernanceRequest(
         user_id="u", application_id="a", prompt="Summarize the doc.",
         response="The sky is green.", retrieved_context=["The sky is blue."],
     )
     result = asyncio.run(GroundingEngineDetector().analyze(req, {}))
-    assert result.label == "HIGH"
-    assert result.score == pytest.approx(0.8)
-    assert result.evidence and result.evidence[0].startswith("NLI groundedness")
+    assert result.label == "UNSUPPORTED"
+    assert result.score == pytest.approx(0.9)
+    assert any("UNSUPPORTED" in e for e in result.evidence)
 
 
 def test_gpu_adapter_score_delegates_to_seam(monkeypatch):

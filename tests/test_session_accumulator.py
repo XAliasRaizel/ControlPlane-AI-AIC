@@ -217,40 +217,39 @@ def test_pure_benign_no_false_trigger():
 # ---------------------------------------------------------------------------
 
 def test_entity_reconstruction_catches_split_pii():
-    """Two turns each with one half of an SSN — neither trips PII alone;
-    concatenation does."""
+    """Two turns each with one half of an email — neither trips PII alone;
+    concatenation does (email regex requires the full address)."""
     store = _fresh_store()
     session_id = "recon-test"
     cfg = AccumulatorConfig()
 
-    # Turn 1: first half of SSN
+    # Turn 1: local part only — not a complete email, no regex fires
     state = update_session(
         store=store,
         session_id=session_id,
         turn_signal=0.1,
-        pii_fragment="My SSN prefix is 123-45-",
+        pii_fragment="contact alice at alice",
         cfg=cfg,
     )
-    # Verify first half alone doesn't trigger (no complete SSN pattern)
-    r1 = _pii_check_fn("My SSN prefix is 123-45-")
+    r1 = _pii_check_fn("contact alice at alice")
     assert not r1.triggered, "First fragment alone should not trigger PII"
 
-    # Turn 2: second half
+    # Turn 2: domain part only — not a complete email, no regex fires
     state = update_session(
         store=store,
         session_id=session_id,
         turn_signal=0.1,
-        pii_fragment="6789 is the rest",
+        pii_fragment="@secret-corp.com for details",
         cfg=cfg,
     )
-    r2 = _pii_check_fn("6789 is the rest")
+    r2 = _pii_check_fn("@secret-corp.com for details")
     assert not r2.triggered, "Second fragment alone should not trigger PII"
 
-    # Concatenated should trigger
+    # Concatenated should trigger — "alice@secret-corp.com" is a valid email
     result = check_entity_reconstruction(state, _pii_check_fn)
     assert result is True, (
         "check_entity_reconstruction should return True when concatenated fragments "
-        "form a complete SSN"
+        "form a complete email address"
     )
 
 

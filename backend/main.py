@@ -50,11 +50,12 @@ async def lifespan(app: FastAPI):
     try:
         from rag.policy.policy_rag import get_policy_evidence
         get_policy_evidence(
-            role="employee",
-            app="support-bot",
-            dept="HR",
-            matched_rule="test",
-            data_class="PUBLIC",
+            user_role="employee",
+            application_id="support-bot",
+            department="HR",
+            matched_rule_description="test",
+            data_classification="PUBLIC",
+            action="ALLOW",
         )
         logger.info("Policy RAG warm-up complete.")
     except Exception as exc:
@@ -324,11 +325,12 @@ async def govern(
     try:
         from rag.policy.policy_rag import get_policy_evidence
         pe = get_policy_evidence(
-            role=request.user_role or "user",
-            app=request.application_id or "default",
-            dept=request.department or "General",
-            matched_rule=policy.policy_id if policy else "",
-            data_class=request.data_classification or "PUBLIC",
+            user_role=request.user_role or "user",
+            application_id=request.application_id or "default",
+            department=request.department or "General",
+            matched_rule_description=policy.policy_id if policy else "",
+            data_classification=request.data_classification or "PUBLIC",
+            action=decision.action if decision else "ALLOW",
         )
         policy_evidence = pe.model_dump(mode="json")
     except Exception as exc:
