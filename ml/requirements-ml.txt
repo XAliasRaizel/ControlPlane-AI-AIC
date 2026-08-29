@@ -1,10 +1,13 @@
-# Optional research/training dependencies. Keep them separate from the gateway.
+# Optional research/training dependencies. Keep separate from the gateway.
+# The gateway (requirements.txt) must NOT import this stack.
+numpy>=1.26,<2.2
 torch>=2.4,<2.7
 transformers>=4.47,<4.50
 datasets>=3.2,<3.4
 scikit-learn>=1.5,<1.7
 accelerate>=1.2,<1.4
 peft>=0.13,<0.15
+packaging>=23.0
 sentencepiece>=0.2,<0.3
 presidio-analyzer>=2.2
 presidio-anonymizer>=2.2

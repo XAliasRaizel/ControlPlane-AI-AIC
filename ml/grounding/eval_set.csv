@@ -1,0 +1,21 @@
+claim,context,is_ungrounded
+The Eiffel Tower is in Paris.,The Eiffel Tower is a wrought-iron lattice tower located in Paris France.,0
+Water boils at 100 degrees Celsius at sea level.,At standard atmospheric pressure water boils at 100 degrees Celsius.,0
+Shakespeare wrote Hamlet.,"Hamlet is a tragedy written by William Shakespeare, believed to have been written around 1600.",0
+The Great Wall of China is visible from space.,The Great Wall of China stretches over 13000 miles across northern China.,1
+Aspirin relieves pain.,Aspirin is a common medication used to relieve pain and reduce fever.,0
+The company reported a loss in Q3.,The company reported record profits of 2.3 billion dollars in Q3 2024.,1
+Einstein discovered gravity.,Isaac Newton formulated the law of universal gravitation in 1687.,1
+Python is a compiled language.,Python is an interpreted high-level programming language known for its readability.,1
+The policy requires annual performance reviews.,All employees must complete a performance review with their manager every six months.,1
+Leave requests must be submitted 2 weeks in advance.,Employees must submit leave requests at least 14 days before the intended start date.,0
+Reimbursements are processed weekly.,Expense reimbursements are processed on a bi-weekly cycle per company policy.,1
+GDPR applies to EU citizens only.,GDPR applies to any organization processing data of individuals located in the EU regardless of the organization location.,1
+The drug has no known side effects.,Common side effects include nausea dizziness and headache in a small percentage of patients.,1
+The meeting was scheduled for Monday.,According to the calendar invite the meeting is scheduled for Tuesday at 2pm.,1
+Employees get 18 days of sick leave per year.,The policy grants 18 days of paid sick leave annually to full-time employees.,0
+The AI Act prohibits all use of emotion recognition.,The EU AI Act prohibits real-time remote biometric identification in public spaces with limited exceptions.,1
+The system passed all compliance checks.,The audit log shows 3 failed compliance checks in the past month.,1
+Users can opt out of data collection at any time.,Users may request deletion of their data within 30 days per GDPR Article 17.,0
+The temperature in the context is Fahrenheit.,The boiling point of water is 100 degrees Celsius at sea level.,1
+Paris is the most visited city in Europe.,Paris is one of the most visited cities in the world attracting tens of millions of tourists annually.,0
