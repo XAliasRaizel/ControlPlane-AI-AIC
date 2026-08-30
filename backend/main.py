@@ -382,7 +382,11 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest, _api_key: str = Depends(verify_api_key)):
+async def chat(
+    payload: ChatRequest,
+    background_tasks: BackgroundTasks,
+    _api_key: str = Depends(verify_api_key),
+):
     gov_req = GovernanceRequest(
         user_id=payload.user_id,
         user_role=payload.user_role,
@@ -392,7 +396,8 @@ async def chat(payload: ChatRequest, _api_key: str = Depends(verify_api_key)):
         data_classification=payload.data_classification,
         session_id=payload.session_id,
     )
-    gov_resp = await govern(gov_req, _api_key)
+    gov_resp = await govern(gov_req, background_tasks=background_tasks, _api_key=_api_key)
+
 
     if gov_resp.decision.action == "BLOCK":
         reply = f"🛡️ [BLOCKED BY CONTROLPLANE.AI]\nYour request was blocked by enterprise governance policy ({gov_resp.policy.policy_id}).\nReason: {gov_resp.decision.reason}"
