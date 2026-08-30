@@ -82,18 +82,23 @@ class HallucinationFastDetector(BaseDetector):
 
         if not claims:
             label = "no_checkable_claims"
+            confidence = 1.0
         elif not unsupported:
             label = "claims_grounded"
+            confidence = 0.9
         elif context_text:
             label = "unsupported_claims_vs_context"
+            confidence = 0.8
         else:
             label = "confident_assertion_no_context"
+            confidence = 0.5
 
         return DetectorResult(
             detector_name=self.name,
             score=round(score, 3),
             label=label,
-            confidence=0.7 if context_text else 0.4,
+            confidence=confidence,
             evidence=unsupported[:5],
             latency_ms=round((time.perf_counter() - t0) * 1000, 3),
         )
+
