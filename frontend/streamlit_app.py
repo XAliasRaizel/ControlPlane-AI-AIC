@@ -822,20 +822,97 @@ with tab_ask:
 
 
 # ==============================================================================
-# TAB 7: RLHF MONITOR
+# ==============================================================================
+# TAB 7: RLHF MONITOR & DPO PIPELINE
 # ==============================================================================
 with tab_rlhf:
-    st.subheader("🔁 RLHF Monitor — Preference Pair Collection & DPO Pipeline")
+    # ══════════════════════════════════════════════════════════════════════════
+    # TOP SECTION: Direct On-Demand Pair Generator
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("⚡ Generate & Judge Preference Pair On-Demand")
     st.caption(
-        "Live view of the RLHF data-collection loop. "
-        "Every 1-in-N governance requests automatically generates a preference pair and labels it. "
-        "Human overrides from the Review Queue also feed the loop."
+        "Instantly send a prompt through dual-generation (Groq API vs. Simulator) and automated LLM judging to synthesize preference data."
     )
 
-    # ---- Row 1: Live stats ----
-    col_refresh, _ = st.columns([1, 5])
-    if col_refresh.button("🔄 Refresh Stats", key="rlhf_refresh"):
-        st.rerun()
+    gen_p_col1, gen_p_col2 = st.columns([3, 1])
+    test_p_input = gen_p_col1.text_input(
+        "Enter prompt to generate preference pair for:",
+        value="Draft an explanation of employee compensation and bonus structure.",
+        key="direct_rlhf_prompt",
+        help="The prompt sent to both models simultaneously.",
+    )
+    test_p_cat = gen_p_col2.selectbox(
+        "Domain Category",
+        ["HR", "FINANCIAL", "GENERAL"],
+        key="direct_rlhf_cat",
+        help="Target policy domain for preference pair categorization.",
+    )
+
+    if st.button("🚀 Generate & Judge Pair Now", type="primary", key="direct_gen_pair_btn", use_container_width=True):
+        with st.spinner("Generating dual-model responses & evaluating with LLM Judge..."):
+            try:
+                from rlhf.generators.api_vs_api import generate_api_vs_api_pair
+                from rlhf.judges.llm_judge import judge_pair_with_llm
+                from rlhf.storage.json_store import write_pair, update_label
+                from rlhf.config import Category
+                import asyncio
+
+                cat_enum = Category(test_p_cat)
+                cfg_a = {"model_name": "openai/gpt-oss-120b", "temperature": 0.7, "max_tokens": 512}
+                cfg_b = {"model_name": "llm_simulator_v1", "temperature": 0.0, "max_tokens": 512}
+
+                new_pair = asyncio.run(
+                    generate_api_vs_api_pair(
+                        prompt=test_p_input,
+                        model_config_a=cfg_a,
+                        model_config_b=cfg_b,
+                        category=cat_enum,
+                    )
+                )
+                write_pair(new_pair)
+
+                judged = judge_pair_with_llm(new_pair, n_calls=2)
+                if judged.chosen:
+                    update_label(judged.pair_id, judged.chosen, "llm_judge", judged.judge_metadata)
+
+                st.session_state["last_generated_pair"] = judged
+                st.success(f"✅ Generated & stored pair `{judged.pair_id[:8]}` (Verdict: Winner is **Response {judged.chosen.upper()}** by LLM Judge)!")
+            except Exception as ex:
+                st.error(f"Generation failed: {ex}")
+
+    # Display most recently generated on-demand pair preview if available
+    if "last_generated_pair" in st.session_state and st.session_state["last_generated_pair"]:
+        last_p = st.session_state["last_generated_pair"]
+        winner = (last_p.chosen or "tie").upper()
+        winner_color = "green" if winner in ["A", "B"] else "orange"
+
+        with st.container(border=True):
+            st.markdown(f"#### 🏆 Latest Generation Result — Preferred: :{winner_color}[Response {winner}]")
+            st.caption(f"Pair ID: `{last_p.pair_id}` · Category: `{last_p.category}` · Labeled by: `{last_p.labeled_by}`")
+
+            c_a, c_b = st.columns(2)
+            with c_a:
+                badge_a = " 🥇 (WINNER)" if winner == "A" else ""
+                st.markdown(f"**Model A: `{last_p.response_a.model_name}`**{badge_a}")
+                if last_p.response_a.is_error:
+                    st.error(last_p.response_a.error_message)
+                else:
+                    st.info(last_p.response_a.text)
+            with c_b:
+                badge_b = " 🥇 (WINNER)" if winner == "B" else ""
+                st.markdown(f"**Model B: `{last_p.response_b.model_name}`**{badge_b}")
+                if last_p.response_b.is_error:
+                    st.error(last_p.response_b.error_message)
+                else:
+                    st.info(last_p.response_b.text)
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2: Live RLHF Pipeline Stats & Budget
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("🔁 Live RLHF Pipeline Stats & Budget")
+    st.caption("Live metrics from background sampling and active preference collection.")
 
     try:
         stats_resp = requests.get(f"{API}/v1/rlhf/status", timeout=5)
@@ -850,45 +927,47 @@ with tab_rlhf:
                 "✅ Yes" if stats.get("export_ready") else "⏳ No",
             )
 
-            st.divider()
-            st.markdown("#### 📂 Pairs by Category")
-            cat_data = stats.get("pairs_by_category", {})
-            if cat_data:
-                import pandas as pd
-                df = pd.DataFrame(
-                    [{"Category": k, "Pairs": v} for k, v in cat_data.items() if v > 0]
-                )
-                if not df.empty:
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+            # Daily budget & category breakdown
+            st.markdown("##### 📂 Dataset Distribution & Daily Budget")
+            cat_col, bud_col = st.columns([1.5, 1])
+
+            with cat_col:
+                cat_data = stats.get("pairs_by_category", {})
+                if cat_data:
+                    import pandas as pd
+                    df = pd.DataFrame(
+                        [{"Category": k, "Pairs Collected": v} for k, v in cat_data.items() if v > 0]
+                    )
+                    if not df.empty:
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No pairs categorized yet.")
                 else:
-                    st.info("No pairs collected yet. Send some governance requests to start building the dataset.")
-            else:
-                st.info("No pairs collected yet.")
+                    st.info("No pairs collected yet.")
 
-            st.markdown("#### ⏱️ Daily API Budget")
-            daily = stats.get("daily_counts", {})
-            bc1, bc2 = st.columns(2)
-            bc1.metric("Judge Calls Today", daily.get("judge_calls", 0), help="Cap: RLHF_MAX_DAILY_JUDGE_CALLS (default 200)")
-            bc2.metric("Generation Calls Today", daily.get("generation_calls", 0), help="Cap: RLHF_MAX_DAILY_GENERATION_CALLS (default 500)")
-
+            with bud_col:
+                daily = stats.get("daily_counts", {})
+                st.metric("Judge Calls Today", daily.get("judge_calls", 0), help="Cap: RLHF_MAX_DAILY_JUDGE_CALLS")
+                st.metric("Generation Calls Today", daily.get("generation_calls", 0), help="Cap: RLHF_MAX_DAILY_GENERATION_CALLS")
         else:
             st.error(f"Could not fetch RLHF status: {stats_resp.status_code}")
     except Exception as e:
-        st.warning(f"RLHF status unavailable (is the API running?): {e}")
+        st.warning(f"RLHF status unavailable: {e}")
 
     st.divider()
 
-    # ---- Row 2: DPO Export ----
-    st.markdown("#### 📤 Export & Download Preference Pairs for DPO Training")
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 3: DPO Dataset Export
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("📤 Export & Download Preference Pairs for DPO Training")
     st.caption(
-        "Export labeled pairs to DPO JSONL format. "
-        "Download the file to train with `python -m rlhf.training.train` (GPU required)."
+        "Export labeled preference pairs to JSONL format for Direct Preference Optimization (DPO) fine-tuning."
     )
     ex_col1, ex_col2, ex_col3 = st.columns([1, 1, 2])
     export_category = ex_col1.selectbox(
-        "Category", ["ALL", "HR", "FINANCIAL", "GENERAL"], key="rlhf_export_cat"
+        "Export Category", ["ALL", "HR", "FINANCIAL", "GENERAL"], key="rlhf_export_cat"
     )
-    if ex_col2.button("📦 Run DPO Export", key="rlhf_export_btn"):
+    if ex_col2.button("📦 Run DPO Export", key="rlhf_export_btn", use_container_width=True):
         try:
             cat_str = None if export_category == "ALL" else export_category
             er = requests.post(f"{API}/v1/rlhf/export", params={"category": cat_str} if cat_str else {}, timeout=15)
@@ -905,7 +984,7 @@ with tab_rlhf:
             st.error(f"Export failed: {e}")
 
     # Download latest export
-    if ex_col3.button("⬇️ Download Latest Export", key="rlhf_download_btn"):
+    if ex_col3.button("⬇️ Download Latest Export", key="rlhf_download_btn", use_container_width=True):
         try:
             dr = requests.get(f"{API}/v1/rlhf/export/latest", timeout=10)
             if dr.status_code == 200:
@@ -916,7 +995,7 @@ with tab_rlhf:
                 total = ddata.get("total_available", 0)
                 st.session_state["download_content"] = (file_content, fname, total)
             elif dr.status_code == 404:
-                st.warning("No exports yet. Click 'Run DPO Export' first.")
+                st.warning("No exports found yet. Click 'Run DPO Export' first.")
             else:
                 st.error(f"Download failed: {dr.status_code}")
         except Exception as e:
@@ -931,14 +1010,16 @@ with tab_rlhf:
             file_name=fname,
             mime="application/jsonl",
             key="rlhf_save_btn",
+            use_container_width=True,
         )
-
 
     st.divider()
 
-    # ---- Row 3: Human labelling widget ----
-    st.markdown("#### 🏷️ Human Labelling — Label the Most Recent Unlabeled Pair")
-    st.caption("Labeling a pair here stores it immediately in the JSONL with `labeled_by='human'`.")
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 4: Human Labelling
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("🏷️ Human Labelling — Active Review")
+    st.caption("Manually label unlabeled pairs to override or train the reward model.")
 
     try:
         from rlhf.storage.json_store import read_all_pairs
@@ -948,12 +1029,12 @@ with tab_rlhf:
         unlabeled = [p for p in all_pairs if p.chosen is None]
 
         if not unlabeled:
-            st.info("No unlabeled pairs found. More governance traffic will generate them automatically.")
+            st.info("No unlabeled pairs currently pending. Generate pairs above to build the queue.")
         else:
             pair = unlabeled[-1]  # most recent
             st.markdown(f"**Pair ID:** `{pair.pair_id}` · **Category:** `{pair.category}` · **Source:** `{pair.source_pipeline}`")
 
-            with st.expander("📝 Prompt"):
+            with st.expander("📝 Prompt", expanded=True):
                 st.text(pair.prompt)
 
             lab_col1, lab_col2 = st.columns(2)
@@ -973,15 +1054,15 @@ with tab_rlhf:
                     st.text_area("", pair.response_b.text, height=120, key="rlhf_resp_b", disabled=True)
 
             hc1, hc2, hc3 = st.columns(3)
-            if hc1.button("👍 Prefer A", key="rlhf_prefer_a"):
+            if hc1.button("👍 Prefer A", key="rlhf_prefer_a", use_container_width=True):
                 update_label(pair.pair_id, "a", "human", {"source": "streamlit_ui"})
                 st.success(f"Labeled pair {pair.pair_id[:8]}… as 'a' (human).")
                 st.rerun()
-            if hc2.button("👍 Prefer B", key="rlhf_prefer_b"):
+            if hc2.button("👍 Prefer B", key="rlhf_prefer_b", use_container_width=True):
                 update_label(pair.pair_id, "b", "human", {"source": "streamlit_ui"})
                 st.success(f"Labeled pair {pair.pair_id[:8]}… as 'b' (human).")
                 st.rerun()
-            if hc3.button("🤝 Tie / Skip", key="rlhf_tie"):
+            if hc3.button("🤝 Tie / Skip", key="rlhf_tie", use_container_width=True):
                 update_label(pair.pair_id, "tie", "human", {"source": "streamlit_ui"})
                 st.info(f"Marked pair {pair.pair_id[:8]}… as tie.")
                 st.rerun()
@@ -992,48 +1073,10 @@ with tab_rlhf:
 
     st.divider()
 
-    # ---- Row 4: Direct Pair Generator (Interactive Testing) ----
-    st.markdown("#### ⚡ Generate & Judge Preference Pair On-Demand")
-    st.caption("Instantly send a prompt through dual-generation (Groq API vs. Simulator) and LLM judging.")
-
-    gen_p_col1, gen_p_col2 = st.columns([3, 1])
-    test_p_input = gen_p_col1.text_input("Enter prompt to generate preference pair for:", value="Draft an explanation of employee compensation and bonus structure.", key="direct_rlhf_prompt")
-    test_p_cat = gen_p_col2.selectbox("Domain Category", ["HR", "FINANCIAL", "GENERAL"], key="direct_rlhf_cat")
-
-    if st.button("🚀 Generate Pair Now", key="direct_gen_pair_btn"):
-        with st.spinner("Generating dual-model responses & calling LLM judge..."):
-            try:
-                from rlhf.generators.api_vs_api import generate_api_vs_api_pair
-                from rlhf.judges.llm_judge import judge_pair_with_llm
-                from rlhf.storage.json_store import write_pair, update_label
-                from rlhf.config import Category
-                import asyncio
-
-                cat_enum = Category(test_p_cat)
-                cfg_a = {"model_name": "openai/gpt-oss-120b", "temperature": 0.7, "max_tokens": 512}
-                cfg_b = {"model_name": "llm_simulator_v1", "temperature": 0.0, "max_tokens": 512}
-
-                new_pair = asyncio.run(generate_api_vs_api_pair(
-                    prompt=test_p_input,
-                    model_config_a=cfg_a,
-                    model_config_b=cfg_b,
-                    category=cat_enum,
-                ))
-                write_pair(new_pair)
-
-                judged = judge_pair_with_llm(new_pair, n_calls=2)
-                if judged.chosen:
-                    update_label(judged.pair_id, judged.chosen, "llm_judge", judged.judge_metadata)
-
-                st.success(f"Generated & stored pair `{judged.pair_id[:8]}` (Verdict: **{judged.chosen}** by LLM judge)!")
-                st.rerun()
-            except Exception as ex:
-                st.error(f"Generation failed: {ex}")
-
-    st.divider()
-
-    # ---- Row 5: All Collected Pairs Table ----
-    st.markdown("#### 📋 All Collected Pairs Explorer")
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 5: All Collected Pairs Explorer
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("📋 All Collected Pairs Explorer")
     try:
         from rlhf.storage.json_store import read_all_pairs
         import pandas as pd
