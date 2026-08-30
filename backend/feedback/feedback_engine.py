@@ -179,23 +179,31 @@ def compute_override_summaries() -> list[RuleOverrideSummary]:
     records = _load_feedback_records(db_path)
     rules = _load_policy_rules()
 
-    flags_by_rule: dict[str, int] = defaultdict(int)
-    overrides_by_rule: dict[str, int] = defaultdict(int)
+    # Build counts keyed by both rule_id AND policy_id for flexible matching
+    flags_by_key: dict[str, int] = defaultdict(int)
+    overrides_by_key: dict[str, int] = defaultdict(int)
 
     for rec in records:
-        # Match by policy_id or rule identifier in reason
-        pid = rec.get("policy_id", "")
-        flags_by_rule[pid] += 1
-        if rec.get("final_action") != rec.get("original_action"):
-            overrides_by_rule[pid] += 1
+        # A review record may carry a rule_id (direct match) or policy_id (parent match)
+        key = rec.get("policy_id", "")
+        if key:
+            flags_by_key[key] += 1
+            if rec.get("final_action") != rec.get("original_action"):
+                overrides_by_key[key] += 1
 
     summaries = []
     for rule in rules:
         rule_id = rule["rule_id"]
         policy_id = rule["policy_id"]
-        # Look up either by specific rule_id or parent policy_id
-        total = flags_by_rule.get(rule_id, flags_by_rule.get(policy_id, 0))
-        overrides = overrides_by_rule.get(rule_id, overrides_by_rule.get(policy_id, 0))
+        # Priority: rule_id first (most specific), then policy_id (parent match)
+        if rule_id in flags_by_key:
+            total = flags_by_key[rule_id]
+            overrides = overrides_by_key[rule_id]
+        elif policy_id in flags_by_key:
+            total = flags_by_key[policy_id]
+            overrides = overrides_by_key[policy_id]
+        else:
+            total, overrides = 0, 0
         rate = overrides / total if total > 0 else 0.0
         summaries.append(RuleOverrideSummary(
             rule_id=rule_id,
@@ -379,39 +387,63 @@ def get_tuning_history(limit: int = 50) -> list[dict]:
 
 
 def seed_demo_feedback_records() -> dict:
-    """Seed realistic review history to demonstrate both NUDGE and ESCALATE paths."""
+    """Seed realistic review history to demonstrate NUDGE, ESCALATE, and HOLD paths.
+
+    Uses rule_ids and policy names that exactly match the loaded YAML policies so
+    that compute_override_summaries() correctly associates override counts with rules.
+
+    Patterns:
+      hr-pii-present (hr-governance)      8 records, 3 overridden -> 37.5% -> NUDGE
+      finance-pii-redact (finance-governance) 10 records, 6 overridden -> 60%  -> ESCALATE
+      support-block-injection (support-governance) 7 records, 0 overridden -> 0% -> HOLD
+    """
     db_path = _get_db_path()
     _init_tuning_table(db_path)
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         now = datetime.now(timezone.utc).isoformat()
-        
-        # 1. Seed 8 records for 'hr-pii-redact' (3 overrides = 37.5% override rate -> NUDGE)
+
+        # Clear stale demo seed records before re-seeding to keep data clean
+        conn.execute(
+            "DELETE FROM pending_reviews WHERE request_id LIKE 'demo-%'"
+        )
+
+        # 1. hr-pii-present (policy: hr-governance) -> 3/8 = 37.5% override -> NUDGE
+        #    Reviewers approved requests even though PII was found (over-aggressive rule)
         for i in range(8):
-            final = "ALLOW" if i < 3 else "MODIFY"
+            # First 3 are overridden: original=HUMAN_REVIEW but reviewer said ALLOW
+            final = "ALLOW" if i < 3 else "HUMAN_REVIEW"
             conn.execute(
                 """INSERT OR REPLACE INTO pending_reviews
-                   (request_id, created_at, policy_id, reason, risk, status, final_action, reviewer_id, notes, resolved_at)
-                   VALUES (?, ?, 'hr-pii-redact', 'HR PII detected in employee profile', 0.45, 'RESOLVED', ?, 'auditor_jane', 'Over-aggressive redaction on public title', ?)""",
+                   (request_id, created_at, policy_id, reason, risk, status, final_action,
+                    reviewer_id, notes, resolved_at)
+                   VALUES (?, ?, 'hr-pii-present', 'PII detected in HR profile lookup', 0.42,
+                           'RESOLVED', ?, 'auditor_jane', 'Public job title is not sensitive PII', ?)""",
                 (f"demo-hr-{i+1:03d}", now, final, now),
             )
 
-        # 2. Seed 10 records for 'finance-restricted-data' (6 overrides = 60.0% override rate -> ESCALATE)
+        # 2. finance-pii-redact (policy: finance-governance) -> 6/10 = 60% override -> ESCALATE
+        #    Pattern is severe: reviewers overriding repeatedly, rule needs human policy review
         for i in range(10):
-            final = "ALLOW" if i < 6 else "BLOCK"
+            final = "ALLOW" if i < 6 else "MODIFY"
             conn.execute(
                 """INSERT OR REPLACE INTO pending_reviews
-                   (request_id, created_at, policy_id, reason, risk, status, final_action, reviewer_id, notes, resolved_at)
-                   VALUES (?, ?, 'finance-restricted-data', 'Restricted finance query', 0.85, 'RESOLVED', ?, 'compliance_lead', 'Legitimate quarterly report request', ?)""",
+                   (request_id, created_at, policy_id, reason, risk, status, final_action,
+                    reviewer_id, notes, resolved_at)
+                   VALUES (?, ?, 'finance-pii-redact', 'PII redaction triggered on financial report', 0.82,
+                           'RESOLVED', ?, 'compliance_lead', 'Legitimate quarterly report - authorized recipient', ?)""",
                 (f"demo-fin-{i+1:03d}", now, final, now),
             )
 
-        # 3. Seed 6 records for 'support-block-injection' (0 overrides = 0% override rate -> HOLD)
-        for i in range(6):
+        # 3. support-block-injection (policy: support-governance) -> 0/7 = 0% override -> HOLD
+        #    Reviewers consistently agreed with all BLOCK decisions (rule is correct)
+        for i in range(7):
             conn.execute(
                 """INSERT OR REPLACE INTO pending_reviews
-                   (request_id, created_at, policy_id, reason, risk, status, final_action, reviewer_id, notes, resolved_at)
-                   VALUES (?, ?, 'support-block-injection', 'Prompt injection attempt', 0.95, 'RESOLVED', 'BLOCK', 'sec_analyst', 'Confirmed adversarial jailbreak attempt', ?)""",
+                   (request_id, created_at, policy_id, reason, risk, status, final_action,
+                    reviewer_id, notes, resolved_at)
+                   VALUES (?, ?, 'support-block-injection', 'Prompt injection attempt detected', 0.96,
+                           'RESOLVED', 'BLOCK', 'sec_analyst', 'Confirmed adversarial jailbreak attempt', ?)""",
                 (f"demo-inj-{i+1:03d}", now, now),
             )
 
@@ -419,11 +451,14 @@ def seed_demo_feedback_records() -> dict:
         conn.close()
         return {
             "status": "seeded",
-            "records_created": 24,
+            "records_created": 25,
             "patterns": [
-                {"policy": "hr-pii-redact", "sample_size": 8, "overrides": 3, "rate": "37.5%", "expected_action": "NUDGE"},
-                {"policy": "finance-restricted-data", "sample_size": 10, "overrides": 6, "rate": "60.0%", "expected_action": "ESCALATE"},
-                {"policy": "support-block-injection", "sample_size": 6, "overrides": 0, "rate": "0.0%", "expected_action": "HOLD"},
+                {"rule": "hr-pii-present", "policy": "hr-governance",
+                 "sample_size": 8, "overrides": 3, "rate": "37.5%", "expected_action": "NUDGE"},
+                {"rule": "finance-pii-redact", "policy": "finance-governance",
+                 "sample_size": 10, "overrides": 6, "rate": "60.0%", "expected_action": "ESCALATE"},
+                {"rule": "support-block-injection", "policy": "support-governance",
+                 "sample_size": 7, "overrides": 0, "rate": "0.0%", "expected_action": "HOLD"},
             ],
         }
     except Exception as exc:

@@ -309,3 +309,105 @@ class Database:
             "avg_latency_ms": round(avg_latency, 2),
             "feedback_count": feedback_count,
         }
+
+    def richer_metrics(self) -> dict:
+        """Extended metrics including detector fire rates, time-series data, and risk distribution."""
+        conn = self.connect()
+
+        # Basic counts
+        total = conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
+        blocked = conn.execute("SELECT COUNT(*) FROM requests WHERE decision='BLOCK'").fetchone()[0]
+        review = conn.execute("SELECT COUNT(*) FROM requests WHERE decision='HUMAN_REVIEW'").fetchone()[0]
+        modified = conn.execute("SELECT COUNT(*) FROM requests WHERE decision='MODIFY'").fetchone()[0]
+        reroute = conn.execute("SELECT COUNT(*) FROM requests WHERE decision='REROUTE'").fetchone()[0]
+        allowed = conn.execute("SELECT COUNT(*) FROM requests WHERE decision='ALLOW'").fetchone()[0]
+        avg_latency = conn.execute("SELECT COALESCE(AVG(latency_ms),0) FROM requests").fetchone()[0]
+        feedback_count = conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
+
+        # Risk distribution buckets (using requests table)
+        risk_low = conn.execute("SELECT COUNT(*) FROM requests WHERE risk < 0.3").fetchone()[0]
+        risk_med = conn.execute("SELECT COUNT(*) FROM requests WHERE risk >= 0.3 AND risk < 0.7").fetchone()[0]
+        risk_high = conn.execute("SELECT COUNT(*) FROM requests WHERE risk >= 0.7").fetchone()[0]
+
+        # Latency trend: last 20 requests (created_at + latency_ms)
+        latency_rows = conn.execute(
+            "SELECT created_at, latency_ms FROM requests ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+        latency_trend = [{"ts": r["created_at"], "ms": round(r["latency_ms"], 1)} for r in reversed(latency_rows)]
+
+        # Risk trend: last 20 requests
+        risk_rows = conn.execute(
+            "SELECT created_at, risk FROM requests ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+        risk_trend = [{"ts": r["created_at"], "risk": round(r["risk"], 4)} for r in reversed(risk_rows)]
+
+        # Detector fire rates from governance_audits
+        import json
+        detector_fire_counts: dict = {}
+        try:
+            audit_rows = conn.execute(
+                "SELECT detector_results FROM governance_audits ORDER BY created_at DESC LIMIT 200"
+            ).fetchall()
+            for row in audit_rows:
+                try:
+                    detectors = json.loads(row["detector_results"])
+                    for d in detectors:
+                        name = d.get("detector_name", "unknown")
+                        score = d.get("score", 0.0)
+                        if name not in detector_fire_counts:
+                            detector_fire_counts[name] = {"fires": 0, "total": 0}
+                        detector_fire_counts[name]["total"] += 1
+                        if score > 0.0:
+                            detector_fire_counts[name]["fires"] += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        detector_fire_rates = {
+            name: {
+                "fires": v["fires"],
+                "total": v["total"],
+                "rate": round(v["fires"] / v["total"], 3) if v["total"] > 0 else 0.0,
+            }
+            for name, v in detector_fire_counts.items()
+        }
+
+        # Blocked by rule (from governance_audits)
+        blocked_by_policy: dict = {}
+        try:
+            policy_rows = conn.execute(
+                "SELECT policy FROM governance_audits WHERE json_extract(decision_details, '$.action') = 'BLOCK' LIMIT 200"
+            ).fetchall()
+            for row in policy_rows:
+                try:
+                    pol = json.loads(row["policy"])
+                    pid = pol.get("policy_id", "unknown")
+                    blocked_by_policy[pid] = blocked_by_policy.get(pid, 0) + 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        conn.close()
+        return {
+            "total_requests": total,
+            "blocked": blocked,
+            "allowed": allowed,
+            "human_review": review,
+            "modified": modified,
+            "rerouted": reroute,
+            "avg_latency_ms": round(avg_latency, 2),
+            "feedback_count": feedback_count,
+            "risk_distribution": {
+                "low": risk_low,
+                "medium": risk_med,
+                "high": risk_high,
+            },
+            "latency_trend": latency_trend,
+            "risk_trend": risk_trend,
+            "detector_fire_rates": detector_fire_rates,
+            "blocked_by_policy": blocked_by_policy,
+        }
+
+

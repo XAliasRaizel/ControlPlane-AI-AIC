@@ -73,6 +73,21 @@ app = FastAPI(
 )
 app.include_router(agent_router)
 
+
+# ---------------------------------------------------------------------------
+# Global exception handler — sanitize internal errors from reaching clients
+# ---------------------------------------------------------------------------
+from fastapi.responses import JSONResponse
+from fastapi import Request as FastAPIRequest
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: FastAPIRequest, exc: Exception):
+    logger.error("Unhandled exception on %s: %s", request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Check backend logs for details."},
+    )
+
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("controlplane.gateway")
 
@@ -441,6 +456,13 @@ async def get_async_by_request(request_id: str):
 async def metrics():
     return db.metrics()
 
+
+
+
+@app.get("/v1/metrics/rich")
+async def rich_metrics():
+    """Extended metrics: detector fire rates, risk/latency trends, blocked-by-rule breakdown."""
+    return db.richer_metrics()
 
 @app.get("/v1/requests")
 async def requests_list(limit: int = 50):
