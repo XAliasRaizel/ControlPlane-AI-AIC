@@ -159,8 +159,8 @@ with tab_chat:
     col_chat, col_telemetry = st.columns([1.2, 0.8])
 
     with col_chat:
-        st.subheader("Interactive AI Chatbot")
-        st.caption("Every message is evaluated in real-time by hot-path detectors and policy rules.")
+        st.subheader("💬 Governance-Protected AI Chatbot")
+        st.caption("Every message runs through the parallel hot-path detector pipeline before a response is generated.")
 
         # Render chat messages
         for msg_idx, msg in enumerate(st.session_state.chat_messages):
@@ -384,146 +384,211 @@ with tab_chat:
 # TAB 2: ADVANCED INSPECTOR (Manual Test Form)
 # ==============================================================================
 with tab_manual:
-    st.subheader("Manual AI Interaction Inspector")
-    st.caption("Inspect candidate responses, retrieved RAG documents, and custom payloads.")
+    st.subheader("🔬 Advanced Inspector")
+    st.caption("Two inspection modes — choose one. Results always appear beside the input.")
 
-    col_in, col_out = st.columns([1, 1])
-
-    with col_in:
-        m_prompt = st.text_area("Prompt", "Give me Rahul's salary and personal phone number.", height=100, key="m_prompt")
-        m_response = st.text_area("Candidate AI Response (optional)", "Rahul's salary is $85,000. Contact: rahul@company.com or +91 9876543210.", height=100, key="m_resp")
-        m_retrieved = st.text_area("Retrieved Context / RAG Docs (optional)", "HR Policy: Salary information is restricted to authorized HR managers.", height=80, key="m_ret")
-
-        if st.button("🚀 Run Governance Inspection", type="primary", key="m_btn"):
-            m_payload = {
-                "user_id": user_id,
-                "application_id": application_id,
-                "department": department,
-                "user_role": user_role,
-                "prompt": m_prompt,
-                "response": m_response if m_response else None,
-                "retrieved_context": [m_retrieved] if m_retrieved else [],
-                "data_classification": data_classification,
-            }
-            try:
-                with st.spinner("Evaluating..."):
-                    m_res = requests.post(f"{API}/v1/govern", json=m_payload, headers={"x-api-key": api_key}, timeout=10)
-                    m_res.raise_for_status()
-                    st.session_state.m_data = m_res.json()
-                    if st.session_state.m_data.get("async_job_id"):
-                        st.session_state.m_async = fetch_async_analysis(st.session_state.m_data["async_job_id"], timeout=1.5)
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    with col_out:
-        if "m_data" in st.session_state:
-            d = st.session_state.m_data
-            act = d["decision"]["action"]
-
-            if act == "BLOCK":
-                st.error(f"### Decision: BLOCK\n**Rule**: `{d['policy']['policy_id']}`\n\n{d['decision']['reason']}")
-            elif act == "MODIFY":
-                st.warning(f"### Decision: MODIFY (Sanitized)\n**Rule**: `{d['policy']['policy_id']}`\n\n{d['decision']['reason']}")
-            else:
-                st.success(f"### Decision: ALLOW\n**Rule**: `{d['policy']['policy_id']}`")
-
-            st.metric("Overall Risk", f"{d['risk']['overall_risk']:.3f}")
-            st.metric("Latency", f"{d['latency_ms']} ms")
-
-            if d.get("sanitized_response"):
-                st.subheader("Controlled / Sanitized Output")
-                st.code(d["sanitized_response"])
-
-            st.subheader("Raw Governance Output")
-            st.json(d)
-
-            if "m_async" in st.session_state and st.session_state.m_async:
-                st.subheader("⚡ Async Deep Analysis Results")
-                st.json(st.session_state.m_async)
-
-    # --------------------------------------------------------------------------
-    # LLM-Backed Inspector (slow path — ask the LLM for a structured analysis)
-    # --------------------------------------------------------------------------
-    st.divider()
-    st.subheader("🤖 LLM Governance Inspector")
-    st.caption(
-        "Uses the shared LLM layer to produce a structured risk analysis. "
-        "Runs on a separate slow path — never blocks the hot-path detector pipeline. "
-        "The LLM only *describes* evidence and *suggests* a recommendation; "
-        "it never enforces policy (that's the hot path's job)."
+    # ── Mode selector ─────────────────────────────────────────────────────────
+    inspector_mode = st.radio(
+        "Select Inspector Mode",
+        ["🛡️ Manual AI Interaction Inspector", "🤖 LLM Governance Inspector"],
+        horizontal=True,
+        key="inspector_mode_selector",
+        label_visibility="collapsed",
     )
 
-    llm_col_in, llm_col_out = st.columns([1, 1])
-    with llm_col_in:
-        llm_prompt = st.text_area(
-            "Prompt to inspect",
-            "Summarize Rahul's performance review with salary details.",
-            height=100,
-            key="llm_inspect_prompt",
-        )
-        llm_response_text = st.text_area(
-            "Candidate AI response (optional)",
-            "",
-            height=80,
-            key="llm_inspect_response",
-        )
-        llm_context_text = st.text_area(
-            "Retrieved context / policy (one entry per line)",
-            "HR Policy: Salary information is confidential.\nPerformance reviews must not include compensation.",
-            height=100,
-            key="llm_inspect_context",
-        )
+    st.divider()
 
-        if st.button("🔍 Run LLM Inspection", type="primary", key="llm_inspect_btn"):
-            context_lines = [line.strip() for line in llm_context_text.splitlines() if line.strip()]
-            inspect_payload = {
-                "prompt": llm_prompt,
-                "response": llm_response_text if llm_response_text.strip() else None,
-                "context": context_lines,
-            }
-            try:
-                with st.spinner("Inspecting with LLM…"):
-                    r = requests.post(f"{API}/v1/inspect", json=inspect_payload, timeout=20)
-                    if r.status_code == 200:
-                        st.session_state.llm_inspect_result = r.json()
-                    else:
-                        st.error(f"Error {r.status_code}: {r.text}")
-            except Exception as e:
-                st.error(f"Request failed: {e}")
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 1 — Manual AI Interaction Inspector
+    # ══════════════════════════════════════════════════════════════════════════
+    if inspector_mode == "🛡️ Manual AI Interaction Inspector":
+        st.markdown("#### 🛡️ Manual AI Interaction Inspector")
+        st.caption("Run governance evaluation against the full hot-path detector pipeline and policy engine.")
 
-    with llm_col_out:
-        if "llm_inspect_result" in st.session_state:
-            res = st.session_state.llm_inspect_result
-            risk = res.get("detected_risk", "unknown")
-            rec = res.get("recommendation", "")
-            gen_mode = res.get("generation_mode", "extractive")
-            cit_check = res.get("citation_check") or {}
+        col_in, col_out = st.columns([1, 1], gap="large")
 
-            if risk == "high" or rec == "block":
-                st.error(f"### ⛔ Risk: **{risk.upper()}** · Recommendation: **{rec.upper()}**")
-            elif risk == "medium":
-                st.warning(f"### ⚠️ Risk: **{risk.upper()}** · Recommendation: **{rec.upper()}**")
+        with col_in:
+            st.markdown("**Input Payload**")
+            m_prompt = st.text_area(
+                "Prompt",
+                "Give me Rahul's salary and personal phone number.",
+                height=110,
+                key="m_prompt",
+                help="The user's original prompt that will be evaluated.",
+            )
+            m_response = st.text_area(
+                "Candidate AI Response _(optional)_",
+                "Rahul's salary is $85,000. Contact: rahul@company.com or +91 9876543210.",
+                height=110,
+                key="m_resp",
+                help="The AI response to evaluate for PII, hallucination, and policy compliance.",
+            )
+            m_retrieved = st.text_area(
+                "Retrieved Context / RAG Docs _(optional)_",
+                "HR Policy: Salary information is restricted to authorized HR managers.",
+                height=80,
+                key="m_ret",
+                help="Grounding context retrieved by RAG — used for hallucination detection.",
+            )
+
+            if st.button("🚀 Run Governance Inspection", type="primary", key="m_btn", use_container_width=True):
+                m_payload = {
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "department": department,
+                    "user_role": user_role,
+                    "prompt": m_prompt,
+                    "response": m_response if m_response else None,
+                    "retrieved_context": [m_retrieved] if m_retrieved else [],
+                    "data_classification": data_classification,
+                }
+                try:
+                    with st.spinner("Running hot-path detectors & policy engine..."):
+                        m_res = requests.post(f"{API}/v1/govern", json=m_payload, headers={"x-api-key": api_key}, timeout=10)
+                        m_res.raise_for_status()
+                        st.session_state.m_data = m_res.json()
+                        if st.session_state.m_data.get("async_job_id"):
+                            st.session_state.m_async = fetch_async_analysis(st.session_state.m_data["async_job_id"], timeout=1.5)
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        with col_out:
+            if "m_data" in st.session_state:
+                d = st.session_state.m_data
+                act = d["decision"]["action"]
+
+                if act == "BLOCK":
+                    st.error(f"### 🛑 BLOCK\n**Rule:** `{d['policy']['policy_id']}`\n\n{d['decision']['reason']}")
+                elif act == "MODIFY":
+                    st.warning(f"### ⚠️ MODIFY (Sanitized)\n**Rule:** `{d['policy']['policy_id']}`\n\n{d['decision']['reason']}")
+                elif act == "HUMAN_REVIEW":
+                    st.info(f"### ⏳ HUMAN REVIEW\n**Rule:** `{d['policy']['policy_id']}`\n\n{d['decision']['reason']}")
+                else:
+                    st.success(f"### ✅ ALLOW\n**Rule:** `{d['policy']['policy_id']}`\n\nRequest conforms to all active policies.")
+
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Risk Score", f"{d['risk']['overall_risk']:.3f}")
+                mc2.metric("Confidence", f"{d['risk']['confidence']:.2f}")
+                mc3.metric("Latency", f"{d['latency_ms']} ms")
+
+                # Detector breakdown
+                with st.expander("🔍 Detector Breakdown", expanded=True):
+                    for det in d.get("detectors", []):
+                        score = det["score"]
+                        badge = f":red[{det['label']}]" if score >= 0.7 else (f":orange[{det['label']}]" if score > 0 else f":green[{det['label']}]")
+                        st.markdown(f"**{det['detector_name'].upper()}** · {badge} · `{det.get('latency_ms', 0):.1f}ms`")
+                        st.progress(score, text=f"{score:.3f}")
+
+                if d.get("sanitized_response"):
+                    with st.expander("✂️ Sanitized / Redacted Output"):
+                        st.code(d["sanitized_response"])
+
+                if "m_async" in st.session_state and st.session_state.m_async:
+                    with st.expander("⚡ Async Deep Analysis"):
+                        st.json(st.session_state.m_async)
+
+                with st.expander("📋 Full JSON Response"):
+                    st.json(d)
             else:
-                st.success(f"### ✅ Risk: **{risk.upper()}** · Recommendation: **{rec.upper()}**")
+                st.info("👈 Fill in the payload and click **Run Governance Inspection** to see results here.")
 
-            st.markdown(f"**Policy:** `{res.get('applicable_policy') or 'N/A'}`")
-            st.markdown(f"**Reason:** {res.get('reason', '')}")
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 2 — LLM Governance Inspector
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        st.markdown("#### 🤖 LLM Governance Inspector")
+        st.caption(
+            "The LLM produces a **structured risk analysis** — it describes evidence and suggests a recommendation. "
+            "This runs on a separate slow path and never touches the hot-path detector pipeline. "
+            "Policy is still enforced by the engine, not by the LLM."
+        )
 
-            controls = res.get("required_controls") or []
-            if controls:
-                st.markdown("**Required Controls:**")
-                for ctrl in controls:
-                    st.markdown(f"- {ctrl}")
+        llm_col_in, llm_col_out = st.columns([1, 1], gap="large")
 
-            c1, c2 = st.columns(2)
-            c1.caption(f"Mode: `{'🤖 LLM' if gen_mode == 'llm' else '📄 Extractive'}`")
-            if cit_check:
-                cit_ok = cit_check.get("ok", True)
-                c2.caption(f"Citations: {'✅ verified' if cit_ok else '⚠️ unverified indices ' + str(cit_check.get('invalid_citations', []))}")
+        with llm_col_in:
+            st.markdown("**Input for LLM Analysis**")
+            llm_prompt = st.text_area(
+                "Prompt to inspect",
+                "Summarize Rahul's performance review with salary details.",
+                height=110,
+                key="llm_inspect_prompt",
+                help="The prompt you want the LLM to perform a governance analysis on.",
+            )
+            llm_response_text = st.text_area(
+                "Candidate AI response _(optional)_",
+                "",
+                height=80,
+                key="llm_inspect_response",
+                help="The AI's proposed response — the LLM will check it for policy violations.",
+            )
+            llm_context_text = st.text_area(
+                "Policy / retrieved context _(one entry per line)_",
+                "HR Policy: Salary information is confidential.\nPerformance reviews must not include compensation.",
+                height=100,
+                key="llm_inspect_context",
+                help="Paste policy excerpts or RAG-retrieved documents for the LLM to reason over.",
+            )
 
-            st.caption(f"Latency: `{res.get('latency_ms', 0):.1f} ms`")
-            with st.expander("📋 Raw Inspector JSON"):
-                st.json(res)
+            if st.button("🔍 Run LLM Inspection", type="primary", key="llm_inspect_btn", use_container_width=True):
+                context_lines = [line.strip() for line in llm_context_text.splitlines() if line.strip()]
+                inspect_payload = {
+                    "prompt": llm_prompt,
+                    "response": llm_response_text if llm_response_text.strip() else None,
+                    "context": context_lines,
+                }
+                try:
+                    with st.spinner("LLM analysing governance risk…"):
+                        r = requests.post(f"{API}/v1/inspect", json=inspect_payload, timeout=20)
+                        if r.status_code == 200:
+                            st.session_state.llm_inspect_result = r.json()
+                        else:
+                            st.error(f"Error {r.status_code}: {r.text}")
+                except Exception as e:
+                    st.error(f"Request failed: {e}")
+
+        with llm_col_out:
+            if "llm_inspect_result" in st.session_state:
+                res = st.session_state.llm_inspect_result
+                risk = res.get("detected_risk", "unknown")
+                rec = res.get("recommendation", "")
+                gen_mode = res.get("generation_mode", "extractive")
+                cit_check = res.get("citation_check") or {}
+
+                # Decision banner
+                if risk == "high" or rec == "block":
+                    st.error(f"### ⛔ Risk: **{risk.upper()}**\n**Recommendation:** {rec.upper()}")
+                elif risk == "medium":
+                    st.warning(f"### ⚠️ Risk: **{risk.upper()}**\n**Recommendation:** {rec.upper()}")
+                else:
+                    st.success(f"### ✅ Risk: **{risk.upper()}**\n**Recommendation:** {rec.upper()}")
+
+                # Key fields
+                st.markdown(f"**Applicable Policy:** `{res.get('applicable_policy') or 'N/A'}`")
+                st.markdown(f"**Reason:** {res.get('reason', '—')}")
+
+                controls = res.get("required_controls") or []
+                if controls:
+                    st.markdown("**Required Controls:**")
+                    for ctrl in controls:
+                        st.markdown(f"  - {ctrl}")
+
+                if res.get("evidence_refs"):
+                    with st.expander("📎 Evidence References"):
+                        for ref in res["evidence_refs"]:
+                            st.caption(f"• {ref}")
+
+                # Meta row
+                lc1, lc2, lc3 = st.columns(3)
+                lc1.caption(f"Mode: `{'🤖 LLM' if gen_mode == 'llm' else '📄 Extractive'}`")
+                lc2.caption(f"Latency: `{res.get('latency_ms', 0):.1f} ms`")
+                if cit_check:
+                    cit_ok = cit_check.get("ok", True)
+                    lc3.caption(f"Citations: {'✅ OK' if cit_ok else '⚠️ unverified'}")
+
+                with st.expander("📋 Raw Inspector JSON"):
+                    st.json(res)
+            else:
+                st.info("👈 Fill in the prompt and click **Run LLM Inspection** to see the structured analysis here.")
 
 
 
