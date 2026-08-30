@@ -637,3 +637,122 @@ async def rlhf_status():
     except Exception as exc:
         logger.warning("RLHF status endpoint error: %s", exc)
         return {"error": str(exc), "total_pairs": 0, "labeled_pairs": 0, "export_ready": False}
+
+
+# ---------------------------------------------------------------------------
+# RLHF DPO export endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/rlhf/export", tags=["rlhf"])
+async def rlhf_export_dpo(category: Optional[str] = None):
+    """Trigger a DPO-format export and return the file path + record count."""
+    try:
+        from rlhf.export.dpo_export import export_for_dpo
+        from rlhf.config import Category
+        cat = None
+        if category:
+            try:
+                cat = Category(category.upper())
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Unknown category: {category}")
+        path = export_for_dpo(category=cat)
+        import pathlib
+        lines = pathlib.Path(path).read_text(encoding="utf-8").strip().splitlines()
+        return {"status": "ok", "path": path, "records": len(lines), "category": category or "ALL"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("RLHF export error: %s", exc)
+        return {"status": "error", "detail": str(exc)}
+
+
+@app.get("/v1/rlhf/export/latest", tags=["rlhf"])
+async def rlhf_get_latest_export():
+    """Return the content of the most recent DPO export file."""
+    import pathlib, json as _json
+    exports_dir = pathlib.Path("rlhf/data/exports")
+    files = sorted(exports_dir.glob("dpo_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not files:
+        raise HTTPException(status_code=404, detail="No DPO exports found. Call POST /v1/rlhf/export first.")
+    latest = files[0]
+    lines = latest.read_text(encoding="utf-8").strip().splitlines()
+    records = []
+    for line in lines:
+        try:
+            records.append(_json.loads(line))
+        except Exception:
+            pass
+    return {"file": latest.name, "records": len(records), "data": records[:10], "total_available": len(records)}
+
+
+# ---------------------------------------------------------------------------
+# Audit Integrity endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/audit/integrity", tags=["audit"])
+async def audit_integrity_check():
+    """Verify the tamper-evident audit chain (Merkle tree + hash chain)."""
+    try:
+        from backend.app.audit_integrity.backends import (
+            AuditRecordBackend,
+            AnchorBackend,
+        )
+        from backend.app.audit_integrity.verifier import verify_ledger
+        import pathlib
+
+        hmac_secret = settings.audit_hash_key.encode("utf-8")
+        db_path = settings.db_path
+        anchor_path = str(pathlib.Path(db_path).with_suffix(".integrity.jsonl"))
+
+        record_backend = AuditRecordBackend(db_path)
+        anchor_backend = AnchorBackend(anchor_path)
+
+        result = verify_ledger(record_backend, anchor_backend, hmac_secret)
+        return {
+            "ok": result.ok,
+            "records_checked": result.records_checked,
+            "checkpoints_checked": result.checkpoints_checked,
+            "first_broken_seq": result.first_broken_seq,
+            "first_broken_checkpoint": result.first_broken_checkpoint,
+            "details": result.details,
+            "status": "TAMPER_FREE" if result.ok else "TAMPERED",
+        }
+    except Exception as exc:
+        logger.warning("Audit integrity check error: %s", exc)
+        return {
+            "ok": False,
+            "records_checked": 0,
+            "checkpoints_checked": 0,
+            "details": [str(exc)],
+            "status": "ERROR",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Session accumulator status endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/session/{session_id}", tags=["session"])
+async def session_status(session_id: str):
+    """Return live session accumulator state for a given session ID."""
+    try:
+        from backend.risk.session_store import get_session_store
+        store = get_session_store()
+        state = store.get(session_id)
+        if not state:
+            return {"session_id": session_id, "found": False, "message": "No session data found"}
+        return {
+            "session_id": session_id,
+            "found": True,
+            "ewma_score": round(state.ewma_score, 4),
+            "peak_score": round(state.peak_score, 4),
+            "session_risk": round(state.session_risk, 4),
+            "last_band": state.last_band,
+            "turn_count": state.turn_count,
+            "contamination_active": state.contamination_active,
+            "contaminated_tools": state.contaminated_tools,
+            "fast_lane_correction_count": state.fast_lane_correction_count,
+        }
+    except Exception as exc:
+        logger.warning("Session status error: %s", exc)
+        return {"session_id": session_id, "found": False, "error": str(exc)}
