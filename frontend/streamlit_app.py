@@ -321,6 +321,92 @@ with tab_manual:
                 st.subheader("⚡ Async Deep Analysis Results")
                 st.json(st.session_state.m_async)
 
+    # --------------------------------------------------------------------------
+    # LLM-Backed Inspector (slow path — ask the LLM for a structured analysis)
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.subheader("🤖 LLM Governance Inspector")
+    st.caption(
+        "Uses the shared LLM layer to produce a structured risk analysis. "
+        "Runs on a separate slow path — never blocks the hot-path detector pipeline. "
+        "The LLM only *describes* evidence and *suggests* a recommendation; "
+        "it never enforces policy (that's the hot path's job)."
+    )
+
+    llm_col_in, llm_col_out = st.columns([1, 1])
+    with llm_col_in:
+        llm_prompt = st.text_area(
+            "Prompt to inspect",
+            "Summarize Rahul's performance review with salary details.",
+            height=100,
+            key="llm_inspect_prompt",
+        )
+        llm_response_text = st.text_area(
+            "Candidate AI response (optional)",
+            "",
+            height=80,
+            key="llm_inspect_response",
+        )
+        llm_context_text = st.text_area(
+            "Retrieved context / policy (one entry per line)",
+            "HR Policy: Salary information is confidential.\nPerformance reviews must not include compensation.",
+            height=100,
+            key="llm_inspect_context",
+        )
+
+        if st.button("🔍 Run LLM Inspection", type="primary", key="llm_inspect_btn"):
+            context_lines = [line.strip() for line in llm_context_text.splitlines() if line.strip()]
+            inspect_payload = {
+                "prompt": llm_prompt,
+                "response": llm_response_text if llm_response_text.strip() else None,
+                "context": context_lines,
+            }
+            try:
+                with st.spinner("Inspecting with LLM…"):
+                    r = requests.post(f"{API}/v1/inspect", json=inspect_payload, timeout=20)
+                    if r.status_code == 200:
+                        st.session_state.llm_inspect_result = r.json()
+                    else:
+                        st.error(f"Error {r.status_code}: {r.text}")
+            except Exception as e:
+                st.error(f"Request failed: {e}")
+
+    with llm_col_out:
+        if "llm_inspect_result" in st.session_state:
+            res = st.session_state.llm_inspect_result
+            risk = res.get("detected_risk", "unknown")
+            rec = res.get("recommendation", "")
+            gen_mode = res.get("generation_mode", "extractive")
+            cit_check = res.get("citation_check") or {}
+
+            if risk == "high" or rec == "block":
+                st.error(f"### ⛔ Risk: **{risk.upper()}** · Recommendation: **{rec.upper()}**")
+            elif risk == "medium":
+                st.warning(f"### ⚠️ Risk: **{risk.upper()}** · Recommendation: **{rec.upper()}**")
+            else:
+                st.success(f"### ✅ Risk: **{risk.upper()}** · Recommendation: **{rec.upper()}**")
+
+            st.markdown(f"**Policy:** `{res.get('applicable_policy') or 'N/A'}`")
+            st.markdown(f"**Reason:** {res.get('reason', '')}")
+
+            controls = res.get("required_controls") or []
+            if controls:
+                st.markdown("**Required Controls:**")
+                for ctrl in controls:
+                    st.markdown(f"- {ctrl}")
+
+            c1, c2 = st.columns(2)
+            c1.caption(f"Mode: `{'🤖 LLM' if gen_mode == 'llm' else '📄 Extractive'}`")
+            if cit_check:
+                cit_ok = cit_check.get("ok", True)
+                c2.caption(f"Citations: {'✅ verified' if cit_ok else '⚠️ unverified indices ' + str(cit_check.get('invalid_citations', []))}")
+
+            st.caption(f"Latency: `{res.get('latency_ms', 0):.1f} ms`")
+            with st.expander("📋 Raw Inspector JSON"):
+                st.json(res)
+
+
+
 
 # ==============================================================================
 # TAB 3: PLATFORM METRICS
@@ -448,7 +534,13 @@ with tab_ask:
         with st.chat_message("assistant"):
             st.markdown(q_item["answer"])
             mode = q_item.get("generation_mode", "extractive")
-            st.caption(f"Mode: `{'🤖 Groq LLM' if mode == 'groq' else '📄 Extractive RAG'}`")
+            cit = q_item.get("citation_check") or {}
+            mode_label = "🤖 Groq LLM" if mode in ("groq", "llm") else "📄 Extractive RAG"
+            if cit:
+                cit_label = "✅ citations verified" if cit.get("ok") else f"⚠️ unverified [{', '.join(str(i) for i in cit.get('invalid_citations', []))}]"
+                st.caption(f"Mode: `{mode_label}` · 🔒 {cit_label}")
+            else:
+                st.caption(f"Mode: `{mode_label}`")
             if q_item.get("citations"):
                 with st.expander(f"📚 View Citations ({len(q_item['citations'])})"):
                     for c in q_item["citations"]:
@@ -457,6 +549,7 @@ with tab_ask:
                         text = c.get("text") or c.get("snippet", "")
                         st.markdown(f"**Source:** `{src}` · Relevance: `{score:.2f}`")
                         st.caption(text)
+
 
     ask_prompt = st.chat_input("Ask about policies (e.g. 'What is our policy on PII in Finance?', 'What are GDPR lawful processing rules?')", key="ask_input_chat")
     if ask_prompt:
@@ -469,15 +562,24 @@ with tab_ask:
                 ans_text = data.get("answer", "No answer returned.")
                 citations = data.get("citations", [])
                 gen_mode = data.get("generation_mode", "extractive")
+                citation_check = data.get("citation_check")
                 st.session_state.ask_messages.append({
                     "question": ask_prompt,
                     "answer": ans_text,
                     "citations": citations,
                     "generation_mode": gen_mode,
+                    "citation_check": citation_check,
                 })
                 with st.chat_message("assistant"):
                     st.markdown(ans_text)
-                    st.caption(f"Mode: `{'🤖 Groq LLM' if gen_mode == 'groq' else '📄 Extractive RAG'}`")
+                    mode_label = "🤖 Groq LLM" if gen_mode in ("groq", "llm") else "📄 Extractive RAG"
+                    cit = citation_check or {}
+                    if cit:
+                        cit_ok = cit.get("ok", True)
+                        cit_label = "✅ citations verified" if cit_ok else f"⚠️ unverified [{', '.join(str(i) for i in cit.get('invalid_citations', []))}]"
+                        st.caption(f"Mode: `{mode_label}` · 🔒 {cit_label}")
+                    else:
+                        st.caption(f"Mode: `{mode_label}`")
                     if citations:
                         with st.expander(f"📚 View Citations ({len(citations)})"):
                             for c in citations:
@@ -490,6 +592,7 @@ with tab_ask:
                 st.error(f"Error {r.status_code}: {r.text}")
         except Exception as e:
             st.error(f"Request failed: {e}")
+
 
 # ==============================================================================
 # TAB 7: RLHF MONITOR

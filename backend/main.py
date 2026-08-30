@@ -530,6 +530,72 @@ async def reindex_audit():
 
 
 # ---------------------------------------------------------------------------
+# Advanced Inspector endpoint (slow path -- NOT the hot detector pipeline)
+# ---------------------------------------------------------------------------
+
+class InspectRequest(BaseModel):
+    prompt: str
+    response: Optional[str] = None
+    context: list[str] = []
+
+
+@app.post("/v1/inspect", tags=["inspector"])
+async def advanced_inspect(payload: InspectRequest):
+    """LLM-backed governance inspector for a prompt/response pair.
+
+    This endpoint runs on a SEPARATE slow path with its own latency budget.
+    It is NEVER inserted into or blocking the sub-50ms hot-path detector pipeline.
+
+    The LLM only *describes* evidence and *suggests* a recommendation --
+    it never enforces policy. All policy enforcement remains in the hot path.
+    """
+    from backend.app.llm.client import LLMClient, build_evidence_block
+    from backend.app.llm.prompts import (
+        build_inspector_system_prompt,
+        parse_inspection_result,
+    )
+
+    # Build context list: user-supplied context + response as evidence if present
+    context_items = list(payload.context)
+    if payload.response:
+        context_items.insert(0, f"Candidate response: {payload.response}")
+
+    api_key = settings.api_key if hasattr(settings, "api_key") else os.getenv("GROQ_API_KEY", "")
+
+    client = LLMClient(
+        api_key_getter=lambda: api_key or None,
+        model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+        max_completion_tokens=600,
+    )
+
+    llm_response = client.generate(
+        system_prompt=build_inspector_system_prompt(),
+        user_prompt=payload.prompt,
+        context=context_items,
+    )
+
+    result = parse_inspection_result(
+        raw_json=llm_response.text,
+        generation_mode=llm_response.generation_mode,
+        citation_check=llm_response.citation_check,
+    )
+
+    return {
+        "applicable_policy": result.applicable_policy,
+        "evidence_refs": result.evidence_refs,
+        "detected_risk": result.detected_risk,
+        "reason": result.reason,
+        "required_controls": result.required_controls,
+        "recommendation": result.recommendation,
+        "generation_mode": result.generation_mode,
+        "citation_check": result.citation_check,
+        "latency_ms": llm_response.latency_ms,
+    }
+
+
+
+
+# ---------------------------------------------------------------------------
 # RLHF monitoring endpoint
 # ---------------------------------------------------------------------------
 

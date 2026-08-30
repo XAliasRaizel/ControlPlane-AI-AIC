@@ -2,26 +2,27 @@
 
 Answer synthesis has two modes, selected automatically at call time:
 
-1. **Generative** (preferred) — retrieved chunks are assembled into a RAG
-   context and sent to a Groq-hosted LLM, which produces a coherent,
-   grounded answer with light connecting language.  Active when
-   ``RAG_GENERATION_ENABLED=true`` (default) **and** ``GROQ_API_KEY`` is
-   set **and** the ``groq`` package is installed.
+1. **Generative** (preferred) -- retrieved chunks are assembled into an
+   injection-safe evidence block (build_evidence_block) and sent to a
+   shared LLMClient, which produces a grounded answer and verifies that
+   every [N] citation refers to real retrieved evidence (verify_citations).
+   Active when RAG_GENERATION_ENABLED=true (default) AND GROQ_API_KEY is
+   set AND the groq package is installed.
 
-2. **Extractive** (fallback) — the single best-matching chunk's text is
-   returned verbatim, exactly as the system worked before Groq integration.
-   Activated automatically on *any* failure in the generative path (import
-   error, missing key, API timeout, rate limit, empty response, etc.).
+2. **Extractive** (fallback) -- default_extractive_fallback() lists
+   retrieved evidence directly. Never confused with LLM prose because it
+   labels itself explicitly.
 
-``synthesize_answer()`` is still the single, swappable seam — it now
-returns a ``(answer_text, generation_mode)`` tuple so the caller can
-record which path produced the answer.
+NOTE: This path is NOT part of the hot-path detector pipeline. It runs on
+a separate, slower path with its own latency budget and is never inserted
+into or blocking the sub-50ms governance decisions.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from typing import Optional
 
 from rag.ask_controlplane.retrieval import hybrid_retrieve
 from rag.config import rag_settings
@@ -54,68 +55,89 @@ def _format_citation(chunk: RetrievedChunk) -> str:
     return f"{label}" + (f" -> {section}" if section else "")
 
 
-def _build_rag_context(chunks: list[RetrievedChunk]) -> str:
-    """Assemble retrieved chunks into a single context string for the LLM."""
-    parts: list[str] = []
-    for i, chunk in enumerate(chunks, 1):
-        source = chunk.metadata.get("source") or chunk.metadata.get("document") or "unknown"
-        parts.append(f"[{i}] (source: {source})\n{chunk.text}")
-    return "\n\n".join(parts)
+def _get_llm_client():
+    """Lazily construct the shared LLMClient using rag_settings."""
+    from backend.app.llm.client import LLMClient
+    return LLMClient(
+        api_key_getter=lambda: rag_settings.groq_api_key or None,
+        model=rag_settings.groq_model,
+        max_completion_tokens=rag_settings.groq_max_tokens,
+    )
 
 
-def synthesize_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, str]:
+def synthesize_answer(
+    question: str,
+    chunks: list[RetrievedChunk],
+) -> tuple[str, str, Optional[dict]]:
     """The swappable seam described in the module docstring.
 
     Returns
     -------
-    tuple[str, str]
-        (answer_text, generation_mode) where generation_mode is
-        ``"groq"`` or ``"extractive"``.
+    tuple[str, str, Optional[dict]]
+        (answer_text, generation_mode, citation_check)
+        generation_mode: "llm" | "extractive"
+        citation_check: dict from verify_citations(), or None for extractive
     """
     if not chunks:
-        return _INSUFFICIENT_EVIDENCE_MESSAGE, "extractive"
+        return _INSUFFICIENT_EVIDENCE_MESSAGE, "extractive", None
 
-    # --- request-id shortcut (always extractive — exact match, no LLM needed) ---
+    # --- request-id shortcut (always extractive -- exact match, no LLM needed) ---
     requested_id = _looks_like_request_id_question(question)
     if requested_id:
         audit_chunks = [c for c in chunks if c.metadata.get("document_type") == "audit_record"]
         matching = [c for c in audit_chunks if requested_id in c.metadata.get("request_id", "")]
         if matching:
-            return matching[0].text, "extractive"
+            return matching[0].text, "extractive", None
         if not audit_chunks:
-            return _INSUFFICIENT_EVIDENCE_MESSAGE, "extractive"
+            return _INSUFFICIENT_EVIDENCE_MESSAGE, "extractive", None
 
-    # --- generative path (Groq) ---
+    # --- generative path via shared LLMClient ---
     if rag_settings.generation_enabled and rag_settings.groq_api_key:
         try:
-            from rag.ask_controlplane.llm_client import GroqLLMClient
+            from backend.app.llm.prompts import build_chatbot_system_prompt
 
-            client = GroqLLMClient()
-            context = _build_rag_context(chunks)
-            answer = client.generate(context=context, question=question)
-            if answer and answer.strip():
-                return answer.strip(), "groq"
-            # Empty response — fall through to extractive
-            logger.warning("Groq returned empty response, falling back to extractive.")
+            client = _get_llm_client()
+            context_texts = [c.text for c in chunks]
+            response = client.generate(
+                system_prompt=build_chatbot_system_prompt(),
+                user_prompt=question,
+                context=context_texts,
+            )
+
+            if response.generation_mode == "llm" and response.text.strip():
+                if response.citation_check and not response.citation_check["ok"]:
+                    logger.warning(
+                        "Ask ControlPlane citation check failed: invalid citations %s",
+                        response.citation_check["invalid_citations"],
+                    )
+                return response.text.strip(), "llm", response.citation_check
+
+            logger.warning(
+                "LLMClient returned extractive mode (error=%s), propagating fallback.",
+                response.error,
+            )
+            return response.text, "extractive", None
+
         except Exception as exc:
-            logger.warning("Groq generation failed (%s), falling back to extractive.", exc)
+            logger.warning("LLM layer failed (%s), falling back to extractive.", exc)
 
     # --- extractive fallback ---
-    return chunks[0].text, "extractive"
+    from backend.app.llm.client import default_extractive_fallback
+    context_texts = [c.text for c in chunks]
+    return default_extractive_fallback(question, context_texts), "extractive", None
 
 
 def ask(question: str, top_k: int = 5, db=None) -> AskControlPlaneAnswer:
-    """The Section 4/5 entry point."""
+    """The Section 4/5 entry point.
+
+    NOTE: Not part of the hot-path. Runs on its own latency budget.
+    """
     if not question or not question.strip():
         return AskControlPlaneAnswer(
             answer="Please ask a specific question about a policy, decision, or audit record.",
             citations=[], status="INVALID_REQUEST", confidence=0.0,
         )
 
-    # A question naming a specific request ID is an exact primary-key
-    # lookup, not a similarity-search problem -- go straight to the
-    # database rather than through semantic/lexical retrieval, which has
-    # no reason to be involved when we already have the exact key.
     requested_id = _looks_like_request_id_question(question)
     if requested_id and db is not None:
         audit = db.get_audit(requested_id) or _find_by_id_prefix(db, requested_id)
@@ -123,7 +145,9 @@ def ask(question: str, top_k: int = 5, db=None) -> AskControlPlaneAnswer:
             from rag.ingestion.audit_loader import audit_record_to_document
             text, metadata = audit_record_to_document(audit)
             chunk = RetrievedChunk(text=text, score=1.0, metadata=metadata)
-            return AskControlPlaneAnswer(answer=text, citations=[chunk], status="SUCCESS", confidence=1.0)
+            return AskControlPlaneAnswer(
+                answer=text, citations=[chunk], status="SUCCESS", confidence=1.0,
+            )
         return AskControlPlaneAnswer(
             answer=f"No audit record found matching request id '{requested_id}'.",
             citations=[], status="INSUFFICIENT_EVIDENCE", confidence=0.0,
@@ -143,19 +167,26 @@ def ask(question: str, top_k: int = 5, db=None) -> AskControlPlaneAnswer:
             status="INSUFFICIENT_EVIDENCE", confidence=0.0,
         )
 
-    answer_text, generation_mode = synthesize_answer(question, chunks)
+    answer_text, generation_mode, citation_check = synthesize_answer(question, chunks)
     confidence = round(sum(c.score for c in chunks[:3]) / min(3, len(chunks)), 3)
 
+    if citation_check and not citation_check["ok"]:
+        logger.warning(
+            "Ask ControlPlane answer has invalid citations %s -- answer returned but review recommended.",
+            citation_check["invalid_citations"],
+        )
+
     return AskControlPlaneAnswer(
-        answer=answer_text, citations=chunks, status="SUCCESS",
-        confidence=confidence, generation_mode=generation_mode,
+        answer=answer_text,
+        citations=chunks,
+        status="SUCCESS",
+        confidence=confidence,
+        generation_mode=generation_mode,
     )
 
 
 def _find_by_id_prefix(db, prefix: str):
-    """request_id is a full UUID; questions typically only quote a short
-    prefix of it ("#2d015591"). Scan recent audits for a prefix match
-    rather than requiring the exact full UUID."""
+    """Scan recent audits for a prefix match on the full UUID."""
     for audit in db.recent_audits(limit=500):
         if audit["request_id"].startswith(prefix):
             return audit
