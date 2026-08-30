@@ -56,8 +56,9 @@ STORAGE_BACKEND: str = os.getenv("RLHF_STORAGE_BACKEND", "json")  # "json" | "sq
 # ---------------------------------------------------------------------------
 # 4.  Sampling / rate-limiting constants.
 # ---------------------------------------------------------------------------
-SAMPLING_RATE_N: int = int(os.getenv("RLHF_SAMPLING_RATE_N", "10"))
+SAMPLING_RATE_N: int = int(os.getenv("RLHF_SAMPLING_RATE_N", "1"))
 """One in every N prompts triggers dual-generation (or 1/N probability)."""
+
 
 MAX_DAILY_JUDGE_CALLS: int = int(os.getenv("RLHF_MAX_DAILY_JUDGE_CALLS", "200"))
 """Hard cap on LLM judge calls per calendar day (cost-control safety net)."""

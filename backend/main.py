@@ -544,7 +544,7 @@ async def rlhf_status():
     This endpoint is read-only and never triggers any model training.
     """
     try:
-        from rlhf.config import get_daily_counts, Category
+        from rlhf.config import get_daily_counts, Category, SAMPLING_RATE_N
         from rlhf.storage.json_store import query
 
         daily = get_daily_counts()
@@ -565,8 +565,9 @@ async def rlhf_status():
             "labeled_pairs": labeled_pairs,
             "pairs_by_category": pairs_by_category,
             "export_ready": labeled_pairs > 0,
-            "sampling_rate_n": int(__import__("os").getenv("RLHF_SAMPLING_RATE_N", "10")),
+            "sampling_rate_n": SAMPLING_RATE_N,
         }
+
     except Exception as exc:
         logger.warning("RLHF status endpoint error: %s", exc)
         return {"error": str(exc), "total_pairs": 0, "labeled_pairs": 0, "export_ready": False}
