@@ -145,7 +145,7 @@ tab_chat, tab_manual, tab_metrics, tab_policies, tab_reviews, tab_ask, tab_rlhf 
     "🔬 Advanced Inspector",
     "📊 Platform Metrics",
     "📜 Policy Rules",
-    "🗂️ Review Queue",
+    "⚖️ Review & Auto-Tuning",
     "🧠 Ask ControlPlane (RAG)",
     "🔁 RLHF Monitor",
 ])
@@ -684,18 +684,174 @@ with tab_policies:
 
 
 # ==============================================================================
-# TAB 5: REVIEW QUEUE
+# TAB 5: REVIEW & AUTO-TUNING
 # ==============================================================================
-# NEW: HUMAN_REVIEW decisions used to be auto-downgraded to BLOCK before this
-# fix (see backend/review/queue.py) because there was nowhere for them to
-# land. Now they're held as genuinely pending, and this tab is where a human
-# actually resolves them -- the missing last step in the decision loop.
 with tab_reviews:
-    st.subheader("🗂️ Human Review Queue")
-    st.caption("Requests routed to HUMAN_REVIEW are held here — nothing is silently auto-blocked.")
+    # ══════════════════════════════════════════════════════════════════════════
+    # TOP SECTION: SELF-GOVERNING THRESHOLD AUTO-TUNER
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("🧠 Self-Governing Threshold Auto-Tuner")
+    st.caption(
+        "ControlPlane applies the same governance principle to itself: "
+        "when a rule gets repeatedly overridden by reviewers, the system automatically "
+        "raises that rule's detector threshold to require stronger evidence before firing. "
+        "If the override pattern is severe, it stops adjusting and escalates for mandatory "
+        "human rule review instead. Every decision is auditable."
+    )
 
-    if st.button("🔄 Refresh Queue"):
-        st.rerun()
+    with st.expander("ℹ️ How it works & Governance Architecture", expanded=False):
+        st.markdown("""
+| Condition | Action | What it means |
+|---|---|---|
+| < 5 resolved reviews | **INSUFFICIENT DATA** | Too few signals — no change yet |
+| Override rate ≥ 25% | **NUDGE** | Threshold raised by +0.05 (requires more evidence to fire) |
+| Override rate ≥ 50% | **ESCALATE** | Stop nudging — rule definition needs human review |
+| Override rate < 25% | **HOLD** | Rule is performing within acceptable bounds |
+
+> **Honest limitation:** Override data only captures false positives you already caught.
+> A rule silently missing things (false negatives) generates zero override records, so
+> this mechanism can only push thresholds **up**, never down. That is a structural safety
+> guarantee — it cannot make the system less safe on its own.
+
+> **Phase 2 (deliberate scope):** Confidence-weight adjustment in risk fusion is the
+> deliberate next step. Threshold tuning was the correct first scope — simpler, more
+> auditable, and directly demoable as a policy YAML diff.
+""")
+
+    # Auto-fetch tuner preview if not in session state
+    if "tuner_result" not in st.session_state:
+        try:
+            r = requests.get(f"{API}/v1/feedback/tuning", timeout=5)
+            if r.status_code == 200:
+                st.session_state["tuner_result"] = r.json()
+                st.session_state["tuner_applied"] = False
+        except Exception:
+            pass
+
+    tc1, tc2, tc3 = st.columns([1, 1, 1.2])
+    if tc1.button("🔍 Run Tuning Analysis (Dry Run)", key="tuner_preview_btn", use_container_width=True):
+        try:
+            with st.spinner("Analysing override patterns across all policy rules..."):
+                r = requests.get(f"{API}/v1/feedback/tuning", timeout=10)
+                if r.status_code == 200:
+                    st.session_state["tuner_result"] = r.json()
+                    st.session_state["tuner_applied"] = False
+                else:
+                    st.error(f"Tuner error: {r.status_code} — {r.text}")
+        except Exception as e:
+            st.error(f"Could not reach tuner: {e}")
+
+    if tc2.button("⚡ Apply Decisions (Write YAML)", key="tuner_apply_btn",
+                  use_container_width=True, type="primary"):
+        try:
+            with st.spinner("Applying threshold nudges to policy YAML files..."):
+                r = requests.post(f"{API}/v1/feedback/tuning/apply", timeout=15)
+                if r.status_code == 200:
+                    st.session_state["tuner_result"] = r.json()
+                    st.session_state["tuner_applied"] = True
+                    st.success("Tuning decisions applied. Policy YAML files have been updated.")
+                else:
+                    st.error(f"Apply failed: {r.status_code} — {r.text}")
+        except Exception as e:
+            st.error(f"Could not apply tuning: {e}")
+
+    if tc3.button("🧪 Seed Demo Review History", key="tuner_seed_demo_btn", use_container_width=True,
+                  help="Populates realistic review resolutions to demonstrate NUDGE (37.5% override), ESCALATE (60% override), and HOLD (0% override)"):
+        try:
+            with st.spinner("Seeding realistic review resolution data..."):
+                r = requests.post(f"{API}/v1/feedback/tuning/seed-demo", timeout=10)
+                if r.status_code == 200:
+                    st.success("✅ Seeded 24 realistic reviews! Refreshing analysis...")
+                    # Automatically fetch fresh tuning analysis
+                    r_fresh = requests.get(f"{API}/v1/feedback/tuning", timeout=10)
+                    if r_fresh.status_code == 200:
+                        st.session_state["tuner_result"] = r_fresh.json()
+                        st.session_state["tuner_applied"] = False
+                    st.rerun()
+                else:
+                    st.error(f"Seeding failed: {r.text}")
+        except Exception as e:
+            st.error(f"Seeding failed: {e}")
+
+    if "tuner_result" in st.session_state and st.session_state["tuner_result"]:
+        tr = st.session_state["tuner_result"]
+        applied_flag = st.session_state.get("tuner_applied", False)
+
+        # Summary metrics
+        mode_label = "Applied" if applied_flag else "Live Status"
+        sm1, sm2, sm3, sm4 = st.columns(4)
+        sm1.metric("Rules Evaluated", tr.get("total_rules_evaluated", 0))
+        sm2.metric("NUDGE" + (" Applied" if applied_flag else ""), tr.get("nudged_count", 0),
+                   delta=None if tr.get("nudged_count", 0) == 0 else f"+{tr.get('nudged_count', 0)}")
+        sm3.metric("ESCALATE", tr.get("escalated_count", 0),
+                   delta=f"+{tr['escalated_count']}" if tr.get("escalated_count", 0) > 0 else None,
+                   delta_color="inverse")
+        sm4.metric("HOLD / Insufficient", tr.get("held_count", 0) + tr.get("insufficient_data_count", 0))
+
+        if applied_flag:
+            st.info(f"✅ **{mode_label}** — Changes written to policy YAML files. Backend restart recommended to reload policy rules.")
+        else:
+            st.info(f"🔍 **{mode_label}** — Dry run preview. Click 'Apply Decisions' to write threshold changes to policy YAML.")
+
+        # Per-rule decision table
+        decisions = tr.get("decisions", [])
+        if decisions:
+            import pandas as pd
+            rows = []
+            for d in decisions:
+                action = d["action"]
+                badge = {"NUDGE": "🔼", "ESCALATE": "🚨", "HOLD": "✅", "INSUFFICIENT_DATA": "⏳"}.get(action, "")
+                rows.append({
+                    "Rule": d["rule_id"],
+                    "Policy": d["policy_id"],
+                    "Decision": f"{badge} {action}",
+                    "Override Rate": f"{d['override_rate']:.0%}",
+                    "Sample Size": d["sample_size"],
+                    "Old Threshold": d.get("old_threshold") if d.get("old_threshold") is not None else "—",
+                    "New Threshold": d.get("new_threshold") if d.get("new_threshold") is not None else "—",
+                })
+            df_tune = pd.DataFrame(rows)
+            st.dataframe(df_tune, use_container_width=True, hide_index=True)
+
+            # Show reasoning for actionable decisions
+            actionable = [d for d in decisions if d["action"] in ("NUDGE", "ESCALATE")]
+            if actionable:
+                with st.expander(f"📝 Reasoning for {len(actionable)} actionable rule(s)", expanded=True):
+                    for d in actionable:
+                        action = d["action"]
+                        if action == "NUDGE":
+                            st.success(
+                                f"**🔼 NUDGE** · `{d['rule_id']}` · "
+                                f"`{d.get('old_threshold')} → {d.get('new_threshold')}`\n\n"
+                                f"{d['reason']}"
+                            )
+                        elif action == "ESCALATE":
+                            st.error(
+                                f"**🚨 ESCALATE** · `{d['rule_id']}`\n\n"
+                                f"{d['reason']}"
+                            )
+
+            # Audit changelog expander
+            with st.expander("📜 Tuning Audit Trail & Changelog"):
+                try:
+                    h_res = requests.get(f"{API}/v1/feedback/tuning/history", timeout=5)
+                    if h_res.status_code == 200:
+                        h_data = h_res.json()
+                        if h_data:
+                            df_hist = pd.DataFrame(h_data)
+                            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("No tuning changes have been applied to YAML files yet.")
+                except Exception as ex:
+                    st.caption(f"Could not load tuning history: {ex}")
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2: HUMAN REVIEW QUEUE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("🗂️ Human Review Queue — Pending Decisions")
+    st.caption("Requests routed to HUMAN_REVIEW are held here — nothing is silently auto-blocked.")
 
     try:
         pending = requests.get(f"{API}/v1/reviews", timeout=5).json()
@@ -704,7 +860,7 @@ with tab_reviews:
         st.warning(f"Could not load review queue: {e}")
 
     if not pending:
-        st.info("No pending reviews. 🎉")
+        st.info("No pending reviews currently queued. Send requests to populate the review queue.")
     else:
         for item in pending:
             with st.container(border=True):
@@ -719,7 +875,7 @@ with tab_reviews:
                     "Resolve as", ["BLOCK", "ALLOW", "MODIFY", "REROUTE"], key=f"act_{item['request_id']}"
                 )
                 notes = c4.text_input("Notes", key=f"notes_{item['request_id']}")
-                if c3.button("Resolve", key=f"resolve_{item['request_id']}"):
+                if c3.button("Resolve", key=f"resolve_{item['request_id']}", use_container_width=True):
                     try:
                         res = requests.post(
                             f"{API}/v1/reviews/{item['request_id']}/resolve",
@@ -734,6 +890,18 @@ with tab_reviews:
                     except Exception as e:
                         st.error(f"Error: {e}")
 
+        # Config panel
+        if "tuner_result" in st.session_state and st.session_state["tuner_result"]:
+            with st.expander("⚙️ Tuner Configuration"):
+                cfg = st.session_state["tuner_result"].get("config", {})
+                if cfg:
+                    cc1, cc2, cc3, cc4 = st.columns(4)
+                    cc1.metric("Min Samples", cfg.get("min_samples", 5))
+                    cc2.metric("Moderate Threshold", f"{cfg.get('moderate_override_rate', 0.25):.0%}")
+                    cc3.metric("Severe Threshold", f"{cfg.get('severe_override_rate', 0.50):.0%}")
+                    cc4.metric("Nudge Step", f"+{cfg.get('nudge_step', 0.05)}")
+                    if cfg.get("phase_2_note"):
+                        st.caption(f"ℹ️ Phase 2: {cfg['phase_2_note']}")
 
 # ==============================================================================
 # TAB 6: ASK CONTROLPLANE (RAG OVER POLICY & AUDIT)

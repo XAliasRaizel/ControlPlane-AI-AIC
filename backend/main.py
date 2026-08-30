@@ -488,6 +488,63 @@ async def feedback(payload: FeedbackRequest):
     return {"status": "stored", **classification}
 
 
+# ---------------------------------------------------------------------------
+# Threshold Auto-Tuner endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/feedback/tuning", tags=["feedback"])
+async def tuning_preview():
+    """Dry-run the self-governing threshold auto-tuner.
+
+    Returns what WOULD happen if the tuner ran — no policy files are changed.
+    Use /v1/feedback/tuning/apply (POST) to actually write YAML changes.
+    """
+    from backend.feedback.feedback_engine import run_tuning_cycle
+    try:
+        return run_tuning_cycle(dry_run=True)
+    except Exception as exc:
+        logger.error("Tuning preview failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/v1/feedback/tuning/apply", tags=["feedback"])
+async def tuning_apply():
+    """Apply threshold auto-tuning decisions to policy YAML files.
+
+    NUDGE decisions raise a rule's detector threshold by one bounded step.
+    ESCALATE decisions flag the rule for mandatory human review (no YAML change).
+    Every applied change is logged with override rate, sample size, and reasoning.
+    """
+    from backend.feedback.feedback_engine import run_tuning_cycle
+    try:
+        return run_tuning_cycle(dry_run=False)
+    except Exception as exc:
+        logger.error("Tuning apply failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/v1/feedback/tuning/seed-demo", tags=["feedback"])
+async def tuning_seed_demo():
+    """Seed realistic review override history to showcase NUDGE, ESCALATE, and HOLD."""
+    from backend.feedback.feedback_engine import seed_demo_feedback_records
+    try:
+        return seed_demo_feedback_records()
+    except Exception as exc:
+        logger.error("Seeding demo feedback failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/v1/feedback/tuning/history", tags=["feedback"])
+async def tuning_history(limit: int = 50):
+    """Retrieve audit trail of applied threshold tuning modifications."""
+    from backend.feedback.feedback_engine import get_tuning_history
+    try:
+        return get_tuning_history(limit)
+    except Exception as exc:
+        logger.error("Loading tuning history failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/v1/reviews")
 async def list_pending_reviews(limit: int = 50):
     return review_queue.list_pending(min(limit, 200))
