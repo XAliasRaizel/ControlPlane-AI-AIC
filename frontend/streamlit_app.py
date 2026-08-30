@@ -186,6 +186,9 @@ with tab_chat:
             else:
                 st.success(f"### ✅ Decision: ALLOW\n**Rule**: `{last_gov['policy']['policy_id']}`\n\nRequest conforms to all security policies.")
 
+            st.info(f"🔁 **RLHF Loop**: Dual-response pair generated & judged for domain **`{department}`**.")
+
+
             # Metrics row
             m1, m2, m3 = st.columns(3)
             m1.metric("Overall Risk", f"{last_gov['risk']['overall_risk']:.3f}")
@@ -620,4 +623,74 @@ with tab_rlhf:
             st.caption(f"{len(unlabeled)} unlabeled pair(s) remaining.")
     except Exception as e:
         st.warning(f"Could not load pairs for labeling: {e}")
+
+    st.divider()
+
+    # ---- Row 4: Direct Pair Generator (Interactive Testing) ----
+    st.markdown("#### ⚡ Generate & Judge Preference Pair On-Demand")
+    st.caption("Instantly send a prompt through dual-generation (Groq API vs. Simulator) and LLM judging.")
+
+    gen_p_col1, gen_p_col2 = st.columns([3, 1])
+    test_p_input = gen_p_col1.text_input("Enter prompt to generate preference pair for:", value="Draft an explanation of employee compensation and bonus structure.", key="direct_rlhf_prompt")
+    test_p_cat = gen_p_col2.selectbox("Domain Category", ["HR", "FINANCIAL", "GENERAL"], key="direct_rlhf_cat")
+
+    if st.button("🚀 Generate Pair Now", key="direct_gen_pair_btn"):
+        with st.spinner("Generating dual-model responses & calling LLM judge..."):
+            try:
+                from rlhf.generators.api_vs_api import generate_api_vs_api_pair
+                from rlhf.judges.llm_judge import judge_pair_with_llm
+                from rlhf.storage.json_store import write_pair, update_label
+                from rlhf.config import Category
+                import asyncio
+
+                cat_enum = Category(test_p_cat)
+                cfg_a = {"model_name": "openai/gpt-oss-120b", "temperature": 0.7, "max_tokens": 512}
+                cfg_b = {"model_name": "llm_simulator_v1", "temperature": 0.0, "max_tokens": 512}
+
+                new_pair = asyncio.run(generate_api_vs_api_pair(
+                    prompt=test_p_input,
+                    model_config_a=cfg_a,
+                    model_config_b=cfg_b,
+                    category=cat_enum,
+                ))
+                write_pair(new_pair)
+
+                judged = judge_pair_with_llm(new_pair, n_calls=2)
+                if judged.chosen:
+                    update_label(judged.pair_id, judged.chosen, "llm_judge", judged.judge_metadata)
+
+                st.success(f"Generated & stored pair `{judged.pair_id[:8]}` (Verdict: **{judged.chosen}** by LLM judge)!")
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Generation failed: {ex}")
+
+    st.divider()
+
+    # ---- Row 5: All Collected Pairs Table ----
+    st.markdown("#### 📋 All Collected Pairs Explorer")
+    try:
+        from rlhf.storage.json_store import read_all_pairs
+        import pandas as pd
+
+        records = read_all_pairs()
+        if records:
+            table_data = []
+            for p in reversed(records):
+                table_data.append({
+                    "Pair ID": p.pair_id[:8] + "...",
+                    "Category": str(p.category.value if hasattr(p.category, "value") else p.category),
+                    "Prompt": p.prompt[:60] + ("..." if len(p.prompt) > 60 else ""),
+                    "Model A": p.response_a.model_name,
+                    "Model B": p.response_b.model_name,
+                    "Chosen": p.chosen or "⏳ Unlabeled",
+                    "Labeled By": p.labeled_by or "-",
+                    "Source": p.source_pipeline or "govern",
+                })
+            df_pairs = pd.DataFrame(table_data)
+            st.dataframe(df_pairs, use_container_width=True, hide_index=True)
+        else:
+            st.info("No pairs collected yet.")
+    except Exception as ex:
+        st.warning(f"Could not load pairs table: {ex}")
+
 
