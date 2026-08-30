@@ -226,8 +226,9 @@ async def govern(
 
     # RLHF sampling — fire-and-forget, never affects latency.
     # 1-in-N requests triggers dual-response generation and storage.
-    if candidate_response:
-        background_tasks.add_task(maybe_collect_pair, request, candidate_response, context)
+    if request.prompt:
+        background_tasks.add_task(maybe_collect_pair, request, sanitized or candidate_response, context)
+
 
     latency_ms = (time.perf_counter() - start) * 1000
 

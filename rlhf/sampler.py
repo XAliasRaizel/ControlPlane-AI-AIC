@@ -105,9 +105,10 @@ async def _generate_and_store(prompt, session_id, category):
         )
         json_store.write_pair(pair)
         logger.info("[RLHF/sampler] pair %s written (category=%s)", pair.pair_id, category)
-        asyncio.ensure_future(_judge_and_update(pair))
+        await _judge_and_update(pair)
     except Exception as exc:  # noqa: BLE001
         logger.debug("[RLHF/sampler] pair generation skipped: %s", exc)
+
 
 
 async def _judge_and_update(pair):

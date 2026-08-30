@@ -65,8 +65,9 @@ async def call_api_model(prompt: str, config: dict) -> str:
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
-            text = client.generate(prompt)
+            text = client.generate(context="", question=prompt)
             return text
+
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "[RLHF/call_api_model] GroqLLMClient failed (%s); falling back to simulator", exc
