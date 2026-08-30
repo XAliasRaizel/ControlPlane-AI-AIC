@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 async def call_api_model(prompt: str, config: dict) -> str:
     """Call an API-hosted language model and return its text response.
 
+    Wired to ``rag.ask_controlplane.llm_client.GroqLLMClient`` when the
+    ``GROQ_API_KEY`` environment variable is set.  Falls back to
+    ``backend.shared.llm_simulator.generate`` for offline / dev mode so the
+    generator always returns something useful.
+
     Args:
         prompt: The user prompt to send.
         config: Model configuration dict.  Expected keys:
@@ -42,16 +47,35 @@ async def call_api_model(prompt: str, config: dict) -> str:
 
     Returns:
         The model's text response as a plain string.
-
-    # TODO: wire this to the existing API-call function in the main codebase.
-    #       In ControlPlane.ai that would be backend/shared/llm_simulator.py
-    #       (for tests/local dev) or the real provider client used in
-    #       backend/utils/llm_judge.py (OpenAIProvider / AnthropicProvider).
-    #       Replace the NotImplementedError below with the actual call.
     """
-    raise NotImplementedError(
-        "call_api_model is a stub.  Wire it to your real LLM client before use."
-    )
+    import os
+
+    model_name = config.get("model_name", "openai/gpt-oss-120b")
+    temperature = float(config.get("temperature", 0.7))
+    max_tokens = int(config.get("max_tokens", 512))
+
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if groq_key:
+        # Use the existing GroqLLMClient — it already handles the Groq API.
+        try:
+            from rag.ask_controlplane.llm_client import GroqLLMClient
+            client = GroqLLMClient(
+                api_key=groq_key,
+                model=model_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            text = client.generate(prompt)
+            return text
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[RLHF/call_api_model] GroqLLMClient failed (%s); falling back to simulator", exc
+            )
+
+    # Offline / fallback: deterministic simulator (never raises).
+    from backend.shared import llm_simulator
+    return llm_simulator.generate(prompt=prompt)
+
 
 
 # ---------------------------------------------------------------------------

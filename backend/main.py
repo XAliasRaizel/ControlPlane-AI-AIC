@@ -43,6 +43,8 @@ from contextlib import asynccontextmanager
 from backend.policy.engine import evaluate_policy, policy_engine
 from backend.decision.engine import make_decision, sanitize_response
 from backend.agents.router import router as agent_router
+from rlhf.sampler import maybe_collect_pair
+
 
 
 @asynccontextmanager
@@ -222,7 +224,13 @@ async def govern(
 
     sanitized = sanitize_response(candidate_response, decision)
 
+    # RLHF sampling — fire-and-forget, never affects latency.
+    # 1-in-N requests triggers dual-response generation and storage.
+    if candidate_response:
+        background_tasks.add_task(maybe_collect_pair, request, candidate_response, context)
+
     latency_ms = (time.perf_counter() - start) * 1000
+
 
     # 8. Audit (Section 5.9)
     audit_ctx = build_audit_context(request)
@@ -515,3 +523,44 @@ async def reindex_audit():
     return {"indexed": rebuild_audit_index(db)}
 
 
+# ---------------------------------------------------------------------------
+# RLHF monitoring endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/rlhf/status", tags=["rlhf"])
+async def rlhf_status():
+    """Return live RLHF data-collection statistics.
+
+    Includes daily API call counts, total / labelled pair counts broken
+    down by category, and an export_ready flag (True when at least one
+    labelled pair is available for DPO export).
+
+    This endpoint is read-only and never triggers any model training.
+    """
+    try:
+        from rlhf.config import get_daily_counts, Category
+        from rlhf.storage.json_store import query
+
+        daily = get_daily_counts()
+
+        # Count pairs per category.
+        pairs_by_category: dict[str, int] = {}
+        total_pairs = 0
+        labeled_pairs = 0
+        for cat in Category:
+            cat_pairs = query(category=cat)
+            pairs_by_category[cat.value] = len(cat_pairs)
+            total_pairs += len(cat_pairs)
+            labeled_pairs += sum(1 for p in cat_pairs if p.chosen is not None)
+
+        return {
+            "daily_counts": daily,
+            "total_pairs": total_pairs,
+            "labeled_pairs": labeled_pairs,
+            "pairs_by_category": pairs_by_category,
+            "export_ready": labeled_pairs > 0,
+            "sampling_rate_n": int(__import__("os").getenv("RLHF_SAMPLING_RATE_N", "10")),
+        }
+    except Exception as exc:
+        logger.warning("RLHF status endpoint error: %s", exc)
+        return {"error": str(exc), "total_pairs": 0, "labeled_pairs": 0, "export_ready": False}

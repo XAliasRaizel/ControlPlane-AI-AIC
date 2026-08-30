@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 def call_judge_llm(prompt: str) -> str:
     """Call the judge LLM and return its raw text response.
 
+    Wired to ``backend.utils.llm_judge.get_active_provider()``, which
+    selects between ``OpenAIProvider``, ``AnthropicProvider``, and
+    ``MockProvider`` based on the ``CP_JUDGE_PROVIDER`` environment
+    variable.  Falls back to the ``MockProvider`` when no provider is
+    configured — so this function never raises in normal operation.
+
     Args:
         prompt: The fully-assembled judge prompt (produced by
             ``_build_judge_prompt``).
@@ -51,21 +57,13 @@ def call_judge_llm(prompt: str) -> str:
     Returns:
         The LLM's raw text response.  Expected to contain one of ``"A"``,
         ``"B"``, or ``"tie"`` (case-insensitive) plus optional reasoning.
-
-    # TODO: wire to real LLM API.
-    #       In ControlPlane.ai that would be one of the provider clients
-    #       in ``backend/utils/llm_judge.py``
-    #       (``OpenAIProvider``, ``AnthropicProvider``, or ``MockProvider``).
-    #       Replace the NotImplementedError below with a real call, e.g.:
-    #
-    #           from backend.utils.llm_judge import get_provider
-    #           provider = get_provider()
-    #           text, _ = provider.complete(system="", user=prompt)
-    #           return text
     """
-    raise NotImplementedError(
-        "call_judge_llm is a stub.  Wire it to a real LLM provider before use."
-    )
+    from backend.utils.llm_judge import get_active_provider
+    provider = get_active_provider()
+    # The judge prompt is the full combined system+user string; pass it as
+    # the user message with an empty system prompt so we don't re-wrap it.
+    text, _meta = provider.complete(system="", user=prompt)
+    return text
 
 
 # ---------------------------------------------------------------------------

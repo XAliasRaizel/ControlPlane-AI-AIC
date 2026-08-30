@@ -83,14 +83,16 @@ def fetch_async_analysis(job_id: str, timeout: float = 3.0):
     return None
 
 
-tab_chat, tab_manual, tab_metrics, tab_policies, tab_reviews, tab_ask = st.tabs([
+tab_chat, tab_manual, tab_metrics, tab_policies, tab_reviews, tab_ask, tab_rlhf = st.tabs([
     "💬 Governance Chatbot",
     "🔬 Advanced Inspector",
     "📊 Platform Metrics",
     "📜 Policy Rules",
     "🗂️ Review Queue",
     "🧠 Ask ControlPlane (RAG)",
+    "🔁 RLHF Monitor",
 ])
+
 
 
 # ==============================================================================
@@ -486,4 +488,136 @@ with tab_ask:
         except Exception as e:
             st.error(f"Request failed: {e}")
 
+# ==============================================================================
+# TAB 7: RLHF MONITOR
+# ==============================================================================
+with tab_rlhf:
+    st.subheader("🔁 RLHF Monitor — Preference Pair Collection & DPO Pipeline")
+    st.caption(
+        "Live view of the RLHF data-collection loop. "
+        "Every 1-in-N governance requests automatically generates a preference pair and labels it. "
+        "Human overrides from the Review Queue also feed the loop."
+    )
+
+    # ---- Row 1: Live stats ----
+    col_refresh, _ = st.columns([1, 5])
+    if col_refresh.button("🔄 Refresh Stats", key="rlhf_refresh"):
+        st.rerun()
+
+    try:
+        stats_resp = requests.get(f"{API}/v1/rlhf/status", timeout=5)
+        if stats_resp.status_code == 200:
+            stats = stats_resp.json()
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Pairs", stats.get("total_pairs", 0))
+            c2.metric("Labeled Pairs", stats.get("labeled_pairs", 0))
+            c3.metric("Sampling Rate", f"1-in-{stats.get('sampling_rate_n', 10)}")
+            c4.metric(
+                "Export Ready",
+                "✅ Yes" if stats.get("export_ready") else "⏳ No",
+            )
+
+            st.divider()
+            st.markdown("#### 📂 Pairs by Category")
+            cat_data = stats.get("pairs_by_category", {})
+            if cat_data:
+                import pandas as pd
+                df = pd.DataFrame(
+                    [{"Category": k, "Pairs": v} for k, v in cat_data.items() if v > 0]
+                )
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No pairs collected yet. Send some governance requests to start building the dataset.")
+            else:
+                st.info("No pairs collected yet.")
+
+            st.markdown("#### ⏱️ Daily API Budget")
+            daily = stats.get("daily_counts", {})
+            bc1, bc2 = st.columns(2)
+            bc1.metric("Judge Calls Today", daily.get("judge_calls", 0), help="Cap: RLHF_MAX_DAILY_JUDGE_CALLS (default 200)")
+            bc2.metric("Generation Calls Today", daily.get("generation_calls", 0), help="Cap: RLHF_MAX_DAILY_GENERATION_CALLS (default 500)")
+
+        else:
+            st.error(f"Could not fetch RLHF status: {stats_resp.status_code}")
+    except Exception as e:
+        st.warning(f"RLHF status unavailable (is the API running?): {e}")
+
+    st.divider()
+
+    # ---- Row 2: DPO Export ----
+    st.markdown("#### 📤 Export Preference Pairs for DPO Training")
+    st.caption(
+        "Export labeled pairs to a JSONL file in `rlhf/data/exports/`. "
+        "Run `python -m rlhf.training.train` on that file to start DPO fine-tuning (GPU required)."
+    )
+    ex_col1, ex_col2 = st.columns([1, 2])
+    export_category = ex_col1.selectbox(
+        "Category", ["ALL", "HR", "FINANCIAL", "GENERAL"], key="rlhf_export_cat"
+    )
+    if ex_col2.button("📦 Run DPO Export", key="rlhf_export_btn"):
+        try:
+            from rlhf.export.dpo_export import export_for_dpo
+            from rlhf.config import Category
+            cat_arg = None if export_category == "ALL" else Category(export_category)
+            out = export_for_dpo(category=cat_arg)
+            st.success(f"Exported to: `{out}`")
+        except Exception as e:
+            st.error(f"Export failed: {e}")
+
+    st.divider()
+
+    # ---- Row 3: Human labelling widget ----
+    st.markdown("#### 🏷️ Human Labelling — Label the Most Recent Unlabeled Pair")
+    st.caption("Labeling a pair here stores it immediately in the JSONL with `labeled_by='human'`.")
+
+    try:
+        from rlhf.storage.json_store import read_all_pairs
+        from rlhf.storage.json_store import update_label
+
+        all_pairs = read_all_pairs()
+        unlabeled = [p for p in all_pairs if p.chosen is None]
+
+        if not unlabeled:
+            st.info("No unlabeled pairs found. More governance traffic will generate them automatically.")
+        else:
+            pair = unlabeled[-1]  # most recent
+            st.markdown(f"**Pair ID:** `{pair.pair_id}` · **Category:** `{pair.category}` · **Source:** `{pair.source_pipeline}`")
+
+            with st.expander("📝 Prompt"):
+                st.text(pair.prompt)
+
+            lab_col1, lab_col2 = st.columns(2)
+            with lab_col1:
+                st.markdown("**Response A**")
+                st.caption(f"Model: `{pair.response_a.model_name}`")
+                if pair.response_a.is_error:
+                    st.error(f"[ERROR] {pair.response_a.error_message}")
+                else:
+                    st.text_area("", pair.response_a.text, height=120, key="rlhf_resp_a", disabled=True)
+            with lab_col2:
+                st.markdown("**Response B**")
+                st.caption(f"Model: `{pair.response_b.model_name}`")
+                if pair.response_b.is_error:
+                    st.error(f"[ERROR] {pair.response_b.error_message}")
+                else:
+                    st.text_area("", pair.response_b.text, height=120, key="rlhf_resp_b", disabled=True)
+
+            hc1, hc2, hc3 = st.columns(3)
+            if hc1.button("👍 Prefer A", key="rlhf_prefer_a"):
+                update_label(pair.pair_id, "a", "human", {"source": "streamlit_ui"})
+                st.success(f"Labeled pair {pair.pair_id[:8]}… as 'a' (human).")
+                st.rerun()
+            if hc2.button("👍 Prefer B", key="rlhf_prefer_b"):
+                update_label(pair.pair_id, "b", "human", {"source": "streamlit_ui"})
+                st.success(f"Labeled pair {pair.pair_id[:8]}… as 'b' (human).")
+                st.rerun()
+            if hc3.button("🤝 Tie / Skip", key="rlhf_tie"):
+                update_label(pair.pair_id, "tie", "human", {"source": "streamlit_ui"})
+                st.info(f"Marked pair {pair.pair_id[:8]}… as tie.")
+                st.rerun()
+
+            st.caption(f"{len(unlabeled)} unlabeled pair(s) remaining.")
+    except Exception as e:
+        st.warning(f"Could not load pairs for labeling: {e}")
 
