@@ -141,14 +141,11 @@ async def _judge_and_update(pair):
 # Public entry point -- called from backend/main.py as a BackgroundTask
 # ---------------------------------------------------------------------------
 
-def maybe_collect_pair(request, candidate_response, context):
+async def maybe_collect_pair(request, candidate_response, context):
     """Possibly trigger RLHF preference-pair collection for this request.
 
-    Called from /v1/govern as a BackgroundTask. Rolls a 1-in-N die; if
-    it hits, schedules dual-response generation and storage.
-
-    This function is synchronous (FastAPI BackgroundTask is fine with
-    sync callables) and schedules async work via loop.create_task.
+    Called from /v1/govern as an async BackgroundTask. Rolls a 1-in-N die;
+    if it hits, executes dual-response generation and storage natively.
 
     All exceptions are silently swallowed -- a bug here must never
     affect the governance request.
@@ -159,8 +156,6 @@ def maybe_collect_pair(request, candidate_response, context):
             if the request was BLOCKED).
         context: The enriched context dict (kept for future extensibility).
     """
-    import asyncio
-
     if not getattr(request, "prompt", None):
         return
 
@@ -172,16 +167,8 @@ def maybe_collect_pair(request, candidate_response, context):
         category = _infer_category(getattr(request, "department", None))
         session_id = getattr(request, "session_id", None)
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                _generate_and_store(request.prompt, session_id, category)
-            )
-        except RuntimeError:
-            # No running event loop (tests / CLI) -- run synchronously.
-            asyncio.run(
-                _generate_and_store(request.prompt, session_id, category)
-            )
+        await _generate_and_store(request.prompt, session_id, category)
 
     except Exception as exc:  # noqa: BLE001
         logger.debug("[RLHF/sampler] maybe_collect_pair suppressed: %s", exc)
+

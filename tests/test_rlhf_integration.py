@@ -130,9 +130,7 @@ def test_maybe_collect_pair_writes_on_hit(tmp_path):
         with patch("rlhf.generators.api_vs_api.generate_api_vs_api_pair", side_effect=fake_generate):
             with patch("rlhf.storage.json_store.write_pair", side_effect=fake_write):
                 with patch("rlhf.sampler._judge_and_update", return_value=None):
-                    maybe_collect_pair(fake_request, "candidate_resp", {})
-                    # Give the event loop a chance to run the task if needed.
-                    import time; time.sleep(0.05)
+                    asyncio.run(maybe_collect_pair(fake_request, "candidate_resp", {}))
 
     # The pair should have been written
     assert len(pair_written) == 1
@@ -151,10 +149,12 @@ def test_maybe_collect_pair_skips_on_miss():
     fake_request.session_id = None
     fake_request.department = "General"
 
-    with patch("rlhf.sampler.random.random", return_value=0.999):  # never sample
-        with patch("rlhf.generators.api_vs_api.generate_api_vs_api_pair") as mock_gen:
-            maybe_collect_pair(fake_request, "response", {})
+    with patch("rlhf.config.SAMPLING_RATE_N", 10):
+        with patch("rlhf.sampler.random.random", return_value=0.999):  # never sample
+            with patch("rlhf.generators.api_vs_api.generate_api_vs_api_pair") as mock_gen:
+                asyncio.run(maybe_collect_pair(fake_request, "response", {}))
     mock_gen.assert_not_called()
+
 
 
 # ===========================================================================
@@ -175,7 +175,8 @@ def test_maybe_collect_pair_suppresses_errors():
             side_effect=RuntimeError("API down"),
         ):
             # Must not raise
-            maybe_collect_pair(fake_request, "resp", {})
+            asyncio.run(maybe_collect_pair(fake_request, "resp", {}))
+
 
 
 # ===========================================================================
