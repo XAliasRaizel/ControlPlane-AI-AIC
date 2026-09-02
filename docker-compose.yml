@@ -1,33 +1,53 @@
-services:
+﻿services:
   controlplane-api:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
-    ports:
-      - "8000:8000"
+    image: controlplane-ai:latest
+    env_file:
+      - .env
     environment:
       CONTROLPLANE_DB_PATH: /data/controlplane.db
       CONTROLPLANE_POLICIES_DIR: /app/policies
-      CONTROLPLANE_AUDIT_HASH_KEY: ${CONTROLPLANE_AUDIT_HASH_KEY:-local-prototype-not-a-secret}
+      CONTROLPLANE_JSON_LOGS: "true"
+    ports:
+      - "8000:8000"
     volumes:
       - controlplane_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
 
   controlplane-ui:
     build:
       context: .
       dockerfile: Dockerfile
-    command: streamlit run frontend/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
+    image: controlplane-ai:latest
+    env_file:
+      - .env
+    command: >
+      python -m streamlit run frontend/streamlit_app.py
+      --server.address 0.0.0.0
+      --server.port 8501
     ports:
       - "8501:8501"
     environment:
-      # FIX: without this, the UI defaults to CONTROLPLANE_API_URL=http://127.0.0.1:8000
-      # (see frontend/streamlit_app.py), which inside this container's own network
-      # namespace does not reach the controlplane-api container. Docker Compose
-      # resolves other services by name, not via localhost.
       CONTROLPLANE_API_URL: http://controlplane-api:8000
     depends_on:
-      - controlplane-api
+      controlplane-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    restart: unless-stopped
 
 volumes:
   controlplane_data:
+    driver: local

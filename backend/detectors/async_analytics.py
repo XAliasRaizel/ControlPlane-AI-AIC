@@ -25,6 +25,7 @@ need to change.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from backend.detectors.base import BaseDetector, register

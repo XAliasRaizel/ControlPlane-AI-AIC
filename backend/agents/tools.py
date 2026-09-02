@@ -84,7 +84,7 @@ def send_email_execute(args: dict) -> ToolCallOutcome:
     to, subject, body = args["to"], args.get("subject", ""), args.get("body", "")
     risk_context = send_email_describe_risk(args)
     message_id = f"msg_{uuid.uuid4().hex[:8]}"
-    _SENT_EMAILS.append({"id": message_id, "to": to, "subject": subject, "ts": time.time()})
+    _SENT_EMAILS.append({"id": message_id, "to": to, "subject": subject, "body": body, "ts": time.time()})
     return ToolCallOutcome(
         tool="send_email", executed=True,
         result={"message_id": message_id, "to": to, "subject": subject},

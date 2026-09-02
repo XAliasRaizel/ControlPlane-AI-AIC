@@ -56,7 +56,7 @@ class HallucinationFastDetector(BaseDetector):
         response_text: str = request.response or ""
         # GovernanceRequest.retrieved_context is list[str] -- join into one string
         context_text: str = "\n".join(request.retrieved_context) if request.retrieved_context else ""
-        use_case: str = request.application_id or ""
+        _use_case: str = request.application_id or ""
 
         claims = checkable_claims(response_text)
         unsupported: list = []

@@ -1,0 +1,61 @@
+﻿# Git & CI
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local env and secrets
+.env
+*.env
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python build artifacts
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Runtime data (mounted via volume in Docker)
+controlplane.db
+controlplane.integrity.jsonl
+*.db-shm
+*.db-wal
+/data/
+
+# Local RAG vector store (rebuilt inside container on first run)
+rag/corpus/
+rag/__pycache__/
+
+# ML model artifacts (large, downloaded at runtime)
+ml/models/
+*.onnx
+*.pt
+*.bin
+
+# Scratch / test output
+scratch/
+*.log
+test-results.xml
+audit-report.json
+
+# Docs / extras not needed in image
+*.md
+*.txt
+plan.md
+HANDOFF*.md
+*.json
+skills_tree.json

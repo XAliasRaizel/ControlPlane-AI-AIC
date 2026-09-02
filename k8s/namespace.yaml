@@ -1,0 +1,9 @@
+﻿# ============================================================
+# k8s/namespace.yaml  — create controlplane namespace
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: controlplane
+  labels:
+    app: controlplane-ai

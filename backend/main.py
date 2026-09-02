@@ -6,6 +6,7 @@ audit, and async pipeline.
 """
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -553,7 +554,7 @@ async def run_fast_lane(request: GovernanceRequest, async_job_id: str):
         logger.warning("Fast lane error: %s", exc)
         logger.info("fast_lane_decision request_id=%s corrections=0 latency=%.1fms timeout=False option=none error=True", request.request_id, latency_ms)
         return
-    
+
     try:
         job = db.get_job(async_job_id)
         if job:
@@ -773,7 +774,7 @@ async def execute_governance(
 
     # 9. Async path — fire and forget with DB tracking (Section 5.8)
     async_job_id: str = f"async-{request_id[:8]}"
-    
+
     fast_async_detectors = [d for d in DETECTOR_REGISTRY.values() if getattr(d, 'fast_async', False)]
     fast_lane_pending = len(fast_async_detectors) > 0
 
@@ -783,14 +784,14 @@ async def execute_governance(
         # Include response in async analysis request so engines have full interaction context
         async_request = request.model_copy(update={"response": sanitized or candidate_response})
         await publish_event(request_id, async_request, async_job_id, hot_path_risk=risk.overall_risk)
-        
+
         if fast_lane_pending:
             # Route through bounded AsyncTaskQueue; fall back to BackgroundTasks if queue unavailable
             if _task_queue is not None:
                 _task_queue.enqueue(run_fast_lane, async_request, async_job_id)
             else:
                 background_tasks.add_task(run_fast_lane, async_request, async_job_id)
-            
+
     except Exception as exc:
         logger.warning("Async publish failed (non-blocking): %s", exc)
 
@@ -1289,7 +1290,8 @@ async def rlhf_export_dpo(category: Optional[str] = None):
 @app.get("/v1/rlhf/export/latest", tags=["rlhf"])
 async def rlhf_get_latest_export():
     """Return the content of the most recent DPO export file."""
-    import pathlib, json as _json
+    import pathlib
+    import json as _json
     exports_dir = pathlib.Path("rlhf/data/exports")
     files = sorted(exports_dir.glob("dpo_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not files:

@@ -1,0 +1,22 @@
+﻿# ============================================================
+# ControlPlane.ai — PersistentVolumeClaim for SQLite data
+# 1Gi, ReadWriteOnce — survives pod restarts
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: controlplane-data
+  namespace: controlplane
+  labels:
+    app: controlplane-api
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Remove storageClassName to use cluster default.
+  # Specify explicitly for cloud providers:
+  #   AWS EBS:    storageClassName: gp3
+  #   GKE:        storageClassName: standard-rwo
+  #   Azure Disk: storageClassName: managed-premium

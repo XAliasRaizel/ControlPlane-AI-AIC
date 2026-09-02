@@ -1,5 +1,4 @@
 """Re-export backend.audit_integrity for app.audit_integrity compatibility."""
-from backend.audit_integrity import *
 from backend.audit_integrity import (
     TamperEvidentAuditLedger,
     AuditRecordBackend,

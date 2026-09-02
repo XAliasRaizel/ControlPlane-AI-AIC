@@ -1,0 +1,79 @@
+﻿# ============================================================
+# ControlPlane.ai — Kubernetes Deployment
+# Namespace: controlplane
+# Replicas: 2 (RollingUpdate)
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controlplane-api
+  namespace: controlplane
+  labels:
+    app: controlplane-api
+    version: "1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: controlplane-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: controlplane-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: controlplane-ai:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          envFrom:
+            - secretRef:
+                name: controlplane-secrets
+          env:
+            - name: CONTROLPLANE_DB_PATH
+              value: /data/controlplane.db
+            - name: CONTROLPLANE_POLICIES_DIR
+              value: /app/policies
+            - name: CONTROLPLANE_JSON_LOGS
+              value: "true"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /v1/health/deep
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 2
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: controlplane-data

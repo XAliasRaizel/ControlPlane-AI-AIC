@@ -105,7 +105,7 @@ class CalibratedClassifier:
         quantized_onnx_dir = self.artifact_dir / "model_quantized_onnx"
         onnx_dir = self.artifact_dir / "model_onnx"
         model_dir = self.artifact_dir / "model"
-        
+
         import torch
         self._torch = torch
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -213,11 +213,11 @@ class GroundingScorer:
         try:
             import torch
             self._torch = torch
-            
+
             quantized_onnx_dir = self.artifact_dir / "model_quantized_onnx"
             onnx_dir = self.artifact_dir / "model_onnx"
             model_dir = self.artifact_dir / "model"
-            
+
             loaded = False
             # Try INT8 Quantized ONNX first
             if quantized_onnx_dir.exists():
@@ -399,6 +399,10 @@ def reset_cache() -> None:
         _cache.clear()
     consult.cache_clear()
     consult_presidio.cache_clear()
+    try:
+        _consult_sensitive_intent_sync.cache_clear()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -568,11 +572,4 @@ def get_sensitive_intent_scorer(task: str = "sensitive_intent") -> Optional[Sens
     return scorer
 
 
-def reset_cache() -> None:
-    """Drop cached models. Used by tests and after environment changes."""
-    with _lock:
-        _cache.clear()
-    try:
-        _consult_sensitive_intent_sync.cache_clear()
-    except Exception:
-        pass
+
