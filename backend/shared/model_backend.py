@@ -17,6 +17,8 @@ Artifact layout produced by ml/train_detector.py:
 """
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import functools
 import json
 import math
@@ -25,6 +27,10 @@ import re
 import threading
 from pathlib import Path
 from typing import Any, Optional
+
+# Shared thread-pool for blocking ML inference calls (Presidio, SentenceTransformer).
+# max_workers=4 is enough: we have at most 2 heavy calls per request in parallel.
+_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="cp-ml")
 
 ENV_PREFIX = "CONTROLPLANE_MODEL_"
 
@@ -59,6 +65,7 @@ class CalibratedClassifier:
         self._model = None
         self._tokenizer = None
         self._torch = None
+        self._device = "cpu"  # updated in _ensure_loaded
         self.temperature = 1.0
         self.threshold = 0.5
         self.positive_label = "POSITIVE"
@@ -101,7 +108,8 @@ class CalibratedClassifier:
         
         import torch
         self._torch = torch
-        
+        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+
         # Try INT8 Quantized ONNX first
         if self.calibration.get("quantized_onnx", False) and quantized_onnx_dir.exists():
             try:
@@ -124,11 +132,12 @@ class CalibratedClassifier:
             except ImportError:
                 pass # fallback to pytorch if optimum not installed
 
-        # PyTorch fallback
+        # PyTorch fallback — move to GPU if available
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
         self._model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
         self._model.eval()
+        self._model = self._model.to(self._device)
 
     def _ensure_model(self) -> bool:
         if self._model is not None:
@@ -148,6 +157,8 @@ class CalibratedClassifier:
             torch = self._torch
             enc = self._tokenizer(text, truncation=True,
                                   max_length=self.max_length, return_tensors="pt")
+            # Move input tensors to the same device as the model
+            enc = {k: v.to(self._device) for k, v in enc.items()}
             with torch.no_grad():
                 logits = self._model(**enc).logits[0]
             pos = float(logits[self.positive_index].item())
@@ -323,42 +334,59 @@ class SensitiveIntentScorer:
             return True
         try:
             from sentence_transformers import SentenceTransformer
+            import numpy as np
             # Try to load from "model" subdirectory, otherwise from the artifact_dir directly
             model_path = self.artifact_dir / "model"
             if not model_path.exists():
                 model_path = self.artifact_dir
-            self._model = SentenceTransformer(str(model_path))
-            
-            # Pre-compute embeddings for anchors
+            # Prefer GPU for fast embedding inference (~5ms vs ~25ms on CPU)
+            try:
+                import torch
+                _device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                _device = "cpu"
+            self._model = SentenceTransformer(str(model_path), device=_device)
+
+            # Pre-compute anchor embeddings as numpy 2D arrays for vectorized cosine sim
             if self.positive_anchors:
-                self.pos_embs = self._model.encode(self.positive_anchors, convert_to_numpy=True, show_progress_bar=False).tolist()
+                pos = self._model.encode(self.positive_anchors, convert_to_numpy=True, show_progress_bar=False)
+                # Normalize rows so cosine sim = dot product
+                norms = np.linalg.norm(pos, axis=1, keepdims=True)
+                self.pos_embs = pos / np.where(norms == 0, 1.0, norms)  # shape [n_pos, dim]
+            else:
+                self.pos_embs = None
             if self.negative_anchors:
-                self.neg_embs = self._model.encode(self.negative_anchors, convert_to_numpy=True, show_progress_bar=False).tolist()
+                neg = self._model.encode(self.negative_anchors, convert_to_numpy=True, show_progress_bar=False)
+                norms = np.linalg.norm(neg, axis=1, keepdims=True)
+                self.neg_embs = neg / np.where(norms == 0, 1.0, norms)  # shape [n_neg, dim]
+            else:
+                self.neg_embs = None
             return True
         except Exception:
             self._model = None
             return False
 
-    def _cosine_sim(self, a, b) -> float:
-        dot = sum(x * y for x, y in zip(a, b))
-        na = sum(x * x for x in a) ** 0.5
-        nb = sum(x * x for x in b) ** 0.5
-        if na == 0 or nb == 0:
+    def _max_sim_np(self, query_emb_normalized, anchor_embs_normalized) -> float:
+        """Vectorized max cosine similarity using pre-normalized numpy arrays."""
+        if anchor_embs_normalized is None or len(anchor_embs_normalized) == 0:
             return 0.0
-        return dot / (na * nb)
-
-    def _max_sim(self, query_emb, anchor_embs) -> float:
-        if not anchor_embs:
-            return 0.0
-        return max(self._cosine_sim(query_emb, a) for a in anchor_embs)
+        # query: [dim], anchors: [n, dim] -> sims: [n]
+        sims = anchor_embs_normalized @ query_emb_normalized
+        return float(sims.max())
 
     def is_targeted_request(self, text: str) -> Optional[tuple[float, bool]]:
         """Returns (margin, fires) or None if model unavailable."""
         if not self._ensure_model():
             return None
         try:
-            query_emb = self._model.encode(text, convert_to_numpy=True, show_progress_bar=False).tolist()
-            margin = self._max_sim(query_emb, self.pos_embs) - self._max_sim(query_emb, self.neg_embs)
+            import numpy as np
+            # Encode query and normalize
+            query_emb = self._model.encode(text, convert_to_numpy=True, show_progress_bar=False)
+            norm = np.linalg.norm(query_emb)
+            if norm > 0:
+                query_emb = query_emb / norm
+            # Vectorized cosine sim against all anchors in one matmul
+            margin = self._max_sim_np(query_emb, self.pos_embs) - self._max_sim_np(query_emb, self.neg_embs)
             fires = margin >= self.threshold
             return float(margin), bool(fires)
         except Exception:
@@ -397,17 +425,12 @@ def consult(task: str, text: str) -> Optional[dict]:
 
 
 @functools.lru_cache(maxsize=1000)
-def consult_presidio(text: str) -> list[str]:
-    """Guarded convenience wrapper for Presidio PII detection.
-    
-    Returns a list of detected entity types (e.g., ['EMAIL_ADDRESS', 'PHONE_NUMBER'])
-    if presidio is installed. Returns [] if it is not installed or errors out,
-    so the caller's deterministic regex logic continues unaffected.
-    """
+def _consult_presidio_sync(text: str) -> list[str]:
+    """Synchronous Presidio call (cached). Called via executor from async wrapper."""
     key = "presidio::analyzer"
     with _lock:
         analyzer = _cache.get(key)
-        
+
     if analyzer is None:
         try:
             from presidio_analyzer import AnalyzerEngine
@@ -418,10 +441,9 @@ def consult_presidio(text: str) -> list[str]:
             return []
         except Exception:
             return []
-            
+
     try:
         results = analyzer.analyze(text=text, language="en")
-        # Deduplicate entity types while preserving order somewhat
         seen = set()
         unique = []
         for r in results:
@@ -433,12 +455,20 @@ def consult_presidio(text: str) -> list[str]:
         return []
 
 
+def consult_presidio(text: str) -> list[str]:
+    """Sync shim — kept for backward-compat with tests and non-async callers."""
+    return _consult_presidio_sync(text)
+
+
+async def aconsult_presidio(text: str) -> list[str]:
+    """Async wrapper: runs Presidio in a thread so the event loop stays free."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_EXECUTOR, _consult_presidio_sync, text)
+
+
 @functools.lru_cache(maxsize=1000)
-def consult_sensitive_intent(text: str) -> Optional[tuple[float, bool]]:
-    """Guarded convenience wrapper for sensitive intent detection.
-    
-    Returns (margin, fires) if model is available, otherwise None.
-    """
+def _consult_sensitive_intent_sync(text: str) -> Optional[tuple[float, bool]]:
+    """Synchronous intent scorer call (cached). Called via executor from async wrapper."""
     try:
         scorer = get_sensitive_intent_scorer()
         if scorer is None:
@@ -446,6 +476,17 @@ def consult_sensitive_intent(text: str) -> Optional[tuple[float, bool]]:
         return scorer.is_targeted_request(text)
     except Exception:
         return None
+
+
+def consult_sensitive_intent(text: str) -> Optional[tuple[float, bool]]:
+    """Sync shim — kept for backward-compat with tests and non-async callers."""
+    return _consult_sensitive_intent_sync(text)
+
+
+async def aconsult_sensitive_intent(text: str) -> Optional[tuple[float, bool]]:
+    """Async wrapper: runs SentenceTransformer.encode() in a thread so the event loop stays free."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_EXECUTOR, _consult_sensitive_intent_sync, text)
 
 
 def artifact_dir_for(task: str) -> Optional[str]:

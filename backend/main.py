@@ -169,7 +169,7 @@ def _get_audits_cache() -> TTLCache:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _task_queue
-    # Start bounded async task queue
+    # Start bounded async task queue (upstream feature)
     _task_queue = AsyncTaskQueue(
         maxsize=settings.async_queue_size,
         num_workers=4,
@@ -180,19 +180,61 @@ async def lifespan(app: FastAPI):
         settings.async_queue_size,
     )
 
-    try:
-        from rag.policy.policy_rag import get_policy_evidence
-        get_policy_evidence(
-            user_role="employee",
-            application_id="support-bot",
-            department="HR",
-            matched_rule_description="test",
-            data_classification="PUBLIC",
-            action="ALLOW",
-        )
-        logger.info("Policy RAG warm-up complete.")
-    except Exception as exc:
-        logger.warning("Policy RAG warm-up skipped: %s", exc)
+    # Parallel warmup of all ML models, Presidio, and Policy RAG for fast cold-start
+    import concurrent.futures
+    logger.info("Initializing background warm-up for ML models, Presidio, and Policy RAG...")
+
+    def _warmup_rag():
+        try:
+            from rag.policy.policy_rag import get_policy_evidence
+            get_policy_evidence(
+                user_role="employee",
+                application_id="support-bot",
+                department="HR",
+                matched_rule_description="test",
+                data_classification="PUBLIC",
+                action="ALLOW",
+            )
+            logger.info("Policy RAG warm-up complete.")
+        except Exception as exc:
+            logger.warning("Policy RAG warm-up skipped: %s", exc)
+
+    def _warmup_presidio():
+        try:
+            from backend.shared.model_backend import consult_presidio
+            consult_presidio("warm-up")
+            logger.info("Presidio warm-up complete.")
+        except Exception as exc:
+            logger.warning("Presidio warm-up skipped: %s", exc)
+
+    def _warmup_detector(task: str):
+        try:
+            from backend.shared.model_backend import (
+                consult,
+                consult_sensitive_intent,
+                get_grounding_scorer,
+            )
+            if task == "grounding":
+                scorer = get_grounding_scorer(task)
+                if scorer:
+                    scorer._ensure_model()
+            elif task == "sensitive_intent":
+                consult_sensitive_intent("warmup query intent")
+            else:
+                consult(task, "warmup text")
+            logger.info("Model %s warm-up complete.", task)
+        except Exception as exc:
+            logger.warning("Model %s warm-up skipped: %s", task, exc)
+
+    # Run all warmups concurrently across thread workers for fast cold-start
+    warmup_tasks = ["injection", "safety", "fairness", "grounding", "sensitive_intent"]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+        f_rag = executor.submit(_warmup_rag)
+        f_presidio = executor.submit(_warmup_presidio)
+        f_models = [executor.submit(_warmup_detector, t) for t in warmup_tasks]
+        concurrent.futures.wait([f_rag, f_presidio] + f_models, timeout=20.0)
+
+    logger.info("All components pre-warmed. FastAPI ready to accept traffic.")
     yield
     # Graceful shutdown: drain and stop the task queue
     await _task_queue.stop()

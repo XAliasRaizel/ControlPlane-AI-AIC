@@ -313,7 +313,7 @@ Every AI request is evaluated through a <strong>7-stage governance pipeline</str
             }
             try:
                 with st.spinner("Evaluating governance & generating response..."):
-                    res = requests.post(f"{API}/v1/chat", json=payload, headers={"x-api-key": api_key}, timeout=10)
+                    res = requests.post(f"{API}/v1/chat", json=payload, headers={"x-api-key": api_key}, timeout=30)
                     res.raise_for_status()
                     chat_data = res.json()
                     gov_info = chat_data["governance"]
@@ -505,7 +505,7 @@ with tab_manual:
                 }
                 try:
                     with st.spinner("Running hot-path detectors & policy engine..."):
-                        m_res = requests.post(f"{API}/v1/govern", json=m_payload, headers={"x-api-key": api_key}, timeout=10)
+                        m_res = requests.post(f"{API}/v1/govern", json=m_payload, headers={"x-api-key": api_key}, timeout=30)
                         m_res.raise_for_status()
                         st.session_state.m_data = m_res.json()
                         if st.session_state.m_data.get("async_job_id"):

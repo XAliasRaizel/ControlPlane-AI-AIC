@@ -215,6 +215,36 @@ _DATA_WORDS_RE = re.compile(
 )
 
 
+# ──────────────────────────────────────────────────────────────────────
+# First-person self-query vs. third-party target discriminator
+# ──────────────────────────────────────────────────────────────────────
+
+_THIRD_PARTY_TARGET_RE = re.compile(
+    r"\b(?:"
+    r"his|her|their|someone|somebody|everyone|anybody|anyone|another|peer|colleague|coworker"
+    r"|[a-z]+'s"
+    r"|[a-z]+s\s+(?:credit|card|salary|pay|payroll|ssn|data|details|record|records|email|phone|password|info|account)"
+    r"|my\s+(?:hr|hrs|manager|boss|colleague|coworker|teammate|peer|lead|director|supervisor|executive|ceo|cto|cfo|employee|staff)(?:'s|s)?"
+    r"|(?:hr|hrs|manager|boss|colleague|coworker|teammate|peer|lead|director|supervisor|executive|ceo|cto|cfo|employee|staff)(?:'s|s)"
+    r"|the\s+(?:hr|hrs|manager|boss|colleague|coworker|teammate|peer|lead|director|supervisor|executive|ceo|cto|cfo|employee|staff)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_FIRST_PERSON_SELF_RE = re.compile(
+    r"\b(?:my\s+(?:own\s+)?|mine|for\s+myself)\b",
+    re.IGNORECASE,
+)
+
+
+def is_first_person_self_query(text: str) -> bool:
+    """Returns True ONLY if the text is asking strictly about the user's own personal data (e.g. 'my salary'),
+    and NOT about another person, colleague, manager, or role (e.g. 'my hr's salary', 'give me rahul's card')."""
+    if _THIRD_PARTY_TARGET_RE.search(text):
+        return False
+    return bool(_FIRST_PERSON_SELF_RE.search(text))
+
+
 def check_safety_net(text: str) -> tuple[bool, float, str]:
     """Fail-cautious fallback: if someone asks for a named person's data
     using detail-seeking language, flag it even if no specific keyword

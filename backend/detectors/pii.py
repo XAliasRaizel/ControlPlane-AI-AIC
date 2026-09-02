@@ -18,10 +18,11 @@ from backend.shared.sensitive_terms import (
     find_keyword_hits,
     find_value_hits,
     check_safety_net,
+    is_first_person_self_query,
     ALL_VALUE_PATTERNS,
 )
 from backend.detectors.base import BaseDetector, register
-from backend.shared.model_backend import consult_presidio
+from backend.shared.model_backend import aconsult_presidio
 
 # Backward-compatibility alias: tests that import _VALUE_PATTERNS directly
 # from this module continue to work. The original format was {label: pattern_string};
@@ -59,10 +60,18 @@ class PIIDetector(BaseDetector):
             evidence = [f"value:{label}" for label, _ in value_hits] + [f"keyword:{kw}" for kw, _ in keyword_hits]
         elif keyword_hits:
             # Request/mention of a sensitive topic, no confirmed value yet.
-            score = min(0.65, 0.35 + 0.12 * (len(keyword_hits) - 1))
-            confidence = min(0.75, 0.55 + 0.05 * len(keyword_hits))
-            label = "PII_REQUEST_AMBIGUOUS"
-            evidence = [f"keyword:{kw}" for kw, _ in keyword_hits]
+            # Semantic check: if this is strictly a first-person self-inquiry (e.g. "how much is my salary"),
+            # mark as CLEAN. If it asks about someone else ("my hrs salary", "his salary"), flag it!
+            if is_first_person_self_query(request.prompt):
+                score = 0.0
+                confidence = 0.95
+                label = "CLEAN"
+                evidence = []
+            else:
+                score = min(0.65, 0.35 + 0.12 * (len(keyword_hits) - 1))
+                confidence = min(0.75, 0.55 + 0.05 * len(keyword_hits))
+                label = "PII_REQUEST_AMBIGUOUS"
+                evidence = [f"keyword:{kw}" for kw, _ in keyword_hits]
         elif safety_triggered:
             # Safety net: named person + detail-seeking language but no
             # explicit keyword matched. Score conservatively but non-zero.
@@ -76,22 +85,19 @@ class PIIDetector(BaseDetector):
             label = "CLEAN"
             evidence = []
 
-        # Optional, default-OFF learned consult for broader entity types
-        # (names, locations, IPs, crypto, etc.) that regex misses.
-        presidio_entities = consult_presidio(text)
-        if presidio_entities:
-            score = max(score, 0.8)
-            label = "PII_DETECTED"
-            confidence = max(confidence, 0.90)
-            # Rebuild evidence as strings — value_hits and keyword_hits are lists
-            # of (label/keyword, category_name) tuples; format them explicitly.
-            evidence = (
-                [f"value:{lbl}" for lbl, _ in value_hits]
-                + [f"keyword:{kw}" for kw, _ in keyword_hits]
-                + [f"presidio:{e}" for e in presidio_entities]
-            )
-        # If presidio fires nothing, keep the evidence already built in the
-        # scoring block above — do NOT overwrite it with raw tuples.
+        # Optional learned consult for unstructured text (names, locations, etc.)
+        # Presidio is only needed for long multi-sentence documents (>150 chars) when NO literal PII was found by regex
+        if not value_hits and len(text.strip()) > 150:
+            presidio_entities = await aconsult_presidio(text)
+            if presidio_entities:
+                score = max(score, 0.8)
+                label = "PII_DETECTED"
+                confidence = max(confidence, 0.90)
+                evidence = (
+                    [f"value:{lbl}" for lbl, _ in value_hits]
+                    + [f"keyword:{kw}" for kw, _ in keyword_hits]
+                    + [f"presidio:{e}" for e in presidio_entities]
+                )
 
         return DetectorResult(
             detector_name=self.name,

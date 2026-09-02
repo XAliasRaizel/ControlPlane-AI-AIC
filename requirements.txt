@@ -27,3 +27,6 @@ jinja2>=3.1.0            # versioned prompt template rendering
 
 # Security hardening dependencies (Phase 4)
 slowapi>=0.1.9           # rate limiting middleware for FastAPI
+
+# Dashboard visualisation
+plotly

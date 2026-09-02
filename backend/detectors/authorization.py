@@ -10,9 +10,10 @@ from backend.shared.sensitive_terms import (
     find_keyword_hits,
     CATEGORY_PERMISSION,
     check_safety_net,
+    is_first_person_self_query,
 )
 from backend.detectors.base import BaseDetector, register
-from backend.shared.model_backend import consult_sensitive_intent
+from backend.shared.model_backend import aconsult_sensitive_intent
 
 
 @register
@@ -44,16 +45,21 @@ class AuthorizationDetector(BaseDetector):
                 if not has_any_access:
                     denied_resources.append("unrecognized_sensitive_data")
 
-        # Semantic Override (Phase 10):
-        # If we have keyword matches but the semantic matcher says this is an aggregate/general query
-        # (margin < threshold -> fires=False), suppress the keyword match.
+        # Semantic & Contextual Override:
+        # If user is asking strictly about their OWN personal data (e.g. 'how much is my salary'),
+        # suppress the RBAC block. But if the query targets another party ('my hrs salary', 'hrs salary', 'manager's pay'),
+        # keep the block active!
         if denied_resources:
-            intent_result = consult_sensitive_intent(request.prompt)
-            if intent_result is not None:
-                _, fires = intent_result
-                if not fires:
-                    # Semantic matcher determined this is NOT a targeted request
-                    denied_resources = []
+            if is_first_person_self_query(request.prompt):
+                # Verified legitimate first-person self-inquiry
+                denied_resources = []
+            elif not keyword_hits:
+                # Only consult semantic intent model for safety net / abstract queries with no explicit keyword
+                intent_result = await aconsult_sensitive_intent(request.prompt)
+                if intent_result is not None:
+                    _, fires = intent_result
+                    if not fires:
+                        denied_resources = []
 
         score = 1.0 if denied_resources else 0.0
         confidence = 0.99 if denied_resources else 0.98
