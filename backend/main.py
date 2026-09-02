@@ -1091,11 +1091,29 @@ async def list_pending_reviews(request: Request, limit: int = 50, _api_key: str 
 async def resolve_review(request: Request, request_id: str, payload: ReviewResolution, _api_key: str = Depends(verify_api_key)):
     if not review_queue.db.get_review(request_id):
         raise HTTPException(status_code=404, detail="No pending review for this request_id")
+
+    # Reconstruct the original GovernanceRequest from audit for gold-label training signal
+    gov_request = None
+    try:
+        audit_record = review_queue.db.get_audit(request_id)
+        if audit_record and audit_record.get("prompt"):
+            gov_request = GovernanceRequest(
+                user_id=audit_record.get("user_id", "unknown"),
+                user_role=audit_record.get("user_role", "user"),
+                department=audit_record.get("department"),
+                application_id=audit_record.get("application_id", "default"),
+                prompt=audit_record.get("prompt", ""),
+                data_classification=audit_record.get("data_classification"),
+            )
+    except Exception:
+        pass  # training signal capture is best-effort, never blocks resolution
+
     return review_queue.resolve(
         request_id=request_id,
         final_action=payload.final_action,
         reviewer_id=payload.reviewer_id,
         notes=payload.notes,
+        request=gov_request,
     )
 
 
