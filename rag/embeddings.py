@@ -192,48 +192,94 @@ class LocalTfidfEmbedder(BaseEmbedder):
 
 
 class SentenceTransformerEmbedder(BaseEmbedder):
-    """Real pretrained embeddings. Correct standard usage; not exercised in
-    this sandbox (see module docstring). No fit() step needed -- the model
+    """Real pretrained embeddings. No fit() step needed -- the model
     is pretrained -- so fit() is a no-op kept only to satisfy the interface.
+    Falls back gracefully to LocalTfidfEmbedder if the model cannot be downloaded
+    (e.g. offline environment).
     """
 
     def __init__(self, model_name: str = rag_settings.embedding_model):
         self.model_name = model_name
         self._model = None
+        self._fallback: LocalTfidfEmbedder | None = None
 
     @property
     def is_fitted(self) -> bool:
-        return self._model is not None
+        if self._fallback is not None:
+            return self._fallback.is_fitted
+        return True
+
 
     def _load_model(self):
-        from sentence_transformers import SentenceTransformer  # local import: optional dep
-
-        if self._model is None:
+        if self._model is not None:
+            return self._model
+        if self._fallback is not None:
+            return None
+        try:
+            from sentence_transformers import SentenceTransformer  # local import: optional dep
             self._model = SentenceTransformer(self.model_name)
-        return self._model
+            return self._model
+        except Exception as exc:
+            import logging
+            logging.getLogger("controlplane.rag").warning(
+                "Failed to load SentenceTransformer model '%s' (%s). "
+                "Falling back to LocalTfidfEmbedder.",
+                self.model_name,
+                exc,
+            )
+            self._fallback = LocalTfidfEmbedder()
+            return None
 
     def fit(self, texts: list[str]) -> None:
-        self._load_model()  # pretrained -- "fitting" just means loading it
+        model = self._load_model()
+        if model is None and self._fallback is not None:
+            self._fallback.fit(texts)
 
     def embed(self, texts: list[str]) -> np.ndarray:
         model = self._load_model()
-        vectors = model.encode(texts, normalize_embeddings=True)
-        return np.asarray(vectors)
+        if model is not None:
+            vectors = model.encode(texts, normalize_embeddings=True)
+            return np.asarray(vectors)
+        if self._fallback is not None:
+            return self._fallback.embed(texts)
+        raise RuntimeError("Embedder failed to initialize model or fallback.")
 
     def save(self, path: Path) -> None:
+        if self._fallback is not None:
+            self._fallback.save(path)
+            return
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
-            f.write(self.model_name)  # nothing to persist but the model name
+            f.write(self.model_name)
 
     def load(self, path: Path) -> None:
-        with open(Path(path)) as f:
-            self.model_name = f.read().strip()
-        self._load_model()
+        try:
+            with open(Path(path)) as f:
+                self.model_name = f.read().strip()
+            self._load_model()
+        except Exception:
+            self._fallback = LocalTfidfEmbedder()
+            self._fallback.load(path)
+
 
 
 def get_embedder() -> BaseEmbedder:
-    """Factory, gated on RAG_EMBEDDING_BACKEND (rag/config.py)."""
+    """Factory, gated on RAG_EMBEDDING_BACKEND (rag/config.py).
+    Falls back gracefully to LocalTfidfEmbedder if sentence-transformers is
+    configured but not installed yet in the current environment.
+    """
     if rag_settings.embedding_backend == "sentence_transformers":
-        return SentenceTransformerEmbedder()
+        try:
+            import sentence_transformers  # type: ignore
+            return SentenceTransformerEmbedder()
+        except ImportError:
+            import logging
+            logging.getLogger("controlplane.rag").warning(
+                "RAG_EMBEDDING_BACKEND is set to 'sentence_transformers', but the package "
+                "is not installed. Falling back to LocalTfidfEmbedder. "
+                "Run `pip install sentence-transformers` to enable neural embeddings."
+            )
+            return LocalTfidfEmbedder()
     return LocalTfidfEmbedder()
+

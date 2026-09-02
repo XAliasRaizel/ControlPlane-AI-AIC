@@ -1,0 +1,9 @@
+display_name: Demo Tenant
+prompt_versions:
+  ask_controlplane: "canary"
+  rlhf_judge: "latest"
+  grounding_extractor: "latest"
+daily_budget_usd: 10.0
+allowed_departments:
+  - hr
+  - finance

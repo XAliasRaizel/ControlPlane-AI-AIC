@@ -28,3 +28,7 @@ data/fairness.jsonl
 # Dynamic RAG runtime indices
 rag_store/audit_*
 
+# RLHF exports
+rlhf/data/exports/
+rag_triad_results.json
+

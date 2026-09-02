@@ -1,47 +1,47 @@
 """
 backend/app/llm/client.py
 
-ONE LLM client shared by Governance Chatbot (Ask ControlPlane) and
-Advanced Inspector.
+Production LLM Gateway for ControlPlane.ai.
 
 Key guarantees:
-  - LLM never enforces policy -- it only describes/summarises evidence.
-  - Evidence is wrapped in explicit delimiters to neutralise indirect
-    prompt injection from the audit trail (build_evidence_block).
-  - Every [N] citation in the answer is verified to be in range after
-    generation (verify_citations).
-  - Any failure in the LLM path falls back to default_extractive_fallback
-    which is a real implementation, not assumed to exist elsewhere.
-  - This class is testable without the groq package: inject groq_call_fn.
+  - Multi-provider failover: Groq -> Ollama (auto-detected from config).
+  - Each provider call is wrapped with tenacity exponential backoff retry.
+  - Evidence is wrapped in injection-shield delimiters before any LLM call.
+  - Every [N] citation in the answer is range-checked after generation.
+  - Token usage is counted (tiktoken) and persisted per call.
+  - Any complete failure falls back to extractive (never raises into governance).
+  - Fully testable via groq_call_fn injection (no network needed for tests).
 
-NOT part of the hot-path detector pipeline (sub-50ms budget). This path
-has its own latency budget and is never inserted into governance blocking.
+NOT on the hot-path detector pipeline (sub-50ms budget). This path has its
+own latency budget and is never inserted into governance blocking decisions.
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LLMResponse:
     text: str
-    generation_mode: str          # "llm" | "extractive"
+    generation_mode: str           # "llm" | "extractive"
     model: Optional[str] = None
+    provider: Optional[str] = None
     latency_ms: float = 0.0
     error: Optional[str] = None
     citation_check: Optional[dict] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    estimated_cost_usd: float = 0.0
 
 
 def build_evidence_block(context: List[str]) -> str:
-    """Wrap retrieved evidence in explicit delimiters.
-
-    Neutralises indirect prompt injection via the audit trail: a stored
-    malicious prompt in an old audit entry should be *described*, never
-    *obeyed*, when later retrieved as evidence for an unrelated question.
-    """
+    """Wrap retrieved evidence in explicit delimiters."""
     numbered = "\n".join(f"[{i + 1}] {chunk}" for i, chunk in enumerate(context))
     return (
         "<evidence>\n"
@@ -55,12 +55,7 @@ def build_evidence_block(context: List[str]) -> str:
 
 
 def verify_citations(answer_text: str, evidence_count: int) -> dict:
-    """Check that every [N] in the answer refers to real evidence.
-
-    Catches the cheap, common failure: citing evidence that was never
-    retrieved at all (out-of-range index). Does not catch the harder case
-    of correctly citing [1] while misdescribing its content.
-    """
+    """Check that every [N] in the answer refers to real evidence."""
     cited = sorted(set(int(m) for m in re.findall(r"\[(\d+)\]", answer_text)))
     valid_range = set(range(1, evidence_count + 1))
     invalid = sorted(set(cited) - valid_range)
@@ -68,12 +63,7 @@ def verify_citations(answer_text: str, evidence_count: int) -> dict:
 
 
 def default_extractive_fallback(question: str, context: List[str]) -> str:
-    """Real non-LLM fallback -- lists retrieved evidence directly.
-
-    Never confused with LLM-generated prose because it explicitly labels
-    itself. Called automatically when: no API key, empty response, any
-    exception from the Groq path.
-    """
+    """Real non-LLM fallback -- lists retrieved evidence directly."""
     if not context:
         return (
             "I couldn't retrieve any relevant policy or audit evidence for this "
@@ -82,18 +72,109 @@ def default_extractive_fallback(question: str, context: List[str]) -> str:
     lines = ["Here is the relevant evidence retrieved for your question:"]
     for i, chunk in enumerate(context[:5], 1):
         lines.append(f"[{i}] {chunk}")
-    lines.append(
-        "(Generated without an LLM -- evidence shown as retrieved, not summarized.)"
-    )
+    lines.append("(Generated without an LLM -- evidence shown as retrieved, not summarized.)")
     return "\n".join(lines)
 
 
-class LLMClient:
-    """Shared LLM client for Governance Chatbot and Advanced Inspector.
+def _call_groq(
+    system_prompt: str,
+    user_message: str,
+    api_key: str,
+    timeout_seconds: float,
+    max_completion_tokens: int,
+) -> str:
+    """Call Groq cloud API with tenacity retry on transient failures."""
+    from groq import Groq  # type: ignore[import-untyped]
 
-    Both call .generate() with their own system_prompt (see prompts.py)
-    and never call Groq directly. Groq call can be injected for testing.
-    """
+    try:
+        from tenacity import (
+            retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+        )
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=0.5, max=4),
+            retry=retry_if_exception_type((TimeoutError, ConnectionError, Exception)),
+            reraise=True,
+        )
+        def _call_with_retry():
+            client = Groq(api_key=api_key, timeout=timeout_seconds)
+            completion = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_message},
+                ],
+                max_completion_tokens=max_completion_tokens,
+            )
+            return completion.choices[0].message.content
+
+        return _call_with_retry()
+
+    except ImportError:
+        client = Groq(api_key=api_key, timeout=timeout_seconds)
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_message},
+            ],
+            max_completion_tokens=max_completion_tokens,
+        )
+        return completion.choices[0].message.content
+
+
+def _call_ollama(
+    system_prompt: str,
+    user_message: str,
+    model: str = "llama3.2:1b",
+    timeout_seconds: float = 15.0,
+    max_completion_tokens: int = 500,
+    host: str = "http://localhost:11434",
+) -> str:
+    """Call local Ollama via HTTP with tenacity retry."""
+    import json
+    import urllib.request
+
+    def _do_call():
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_message},
+            ],
+            "stream": False,
+            "options": {"num_predict": max_completion_tokens},
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{host.rstrip('/')}/api/chat",
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return res.get("message", {}).get("content", "")
+
+    try:
+        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=0.5, max=4),
+            retry=retry_if_exception_type((TimeoutError, ConnectionError, OSError)),
+            reraise=True,
+        )
+        def _call_with_retry():
+            return _do_call()
+
+        return _call_with_retry()
+    except ImportError:
+        return _do_call()
+
+
+class LLMClient:
+    """Production LLM gateway with multi-provider failover and retries."""
 
     def __init__(
         self,
@@ -103,14 +184,25 @@ class LLMClient:
         timeout_seconds: float = 8.0,
         extractive_fallback: Callable[[str, List[str]], str] = default_extractive_fallback,
         groq_call_fn: Optional[Callable[[str, str, str, float, int], str]] = None,
+        provider: str = "groq",      # "groq" | "ollama" | "auto"
+        ollama_model: str = "llama3.2:1b",
+        ollama_host: str = "http://localhost:11434",
+        track_usage: bool = True,
+        department: str = "default",
+        tenant_id: str = "default",
     ) -> None:
         self._api_key_getter = api_key_getter
         self.model = model
         self.max_completion_tokens = max_completion_tokens
         self.timeout_seconds = timeout_seconds
         self._extractive_fallback = extractive_fallback
-        # groq_call_fn: (system, user, api_key, timeout, max_tokens) -> str
-        self._groq_call_fn = groq_call_fn or self._call_groq_default
+        self.provider = provider
+        self.ollama_model = ollama_model
+        self.ollama_host = ollama_host
+        self.track_usage = track_usage
+        self.department = department
+        self.tenant_id = tenant_id
+        self._groq_call_fn = groq_call_fn or _call_groq
 
     def generate(
         self,
@@ -118,47 +210,120 @@ class LLMClient:
         user_prompt: str,
         context: List[str],
     ) -> LLMResponse:
-        """Orchestrate: check key -> wrap evidence -> call Groq -> verify citations.
-
-        Falls back to extractive on any failure.
-        Evidence block is always built regardless of path, so injection
-        shielding applies to both the LLM and extractive paths.
-        """
         start = time.perf_counter()
         api_key = self._api_key_getter()
 
-        if not api_key:
+        # Immediate fast-path when configured provider is groq and key is missing
+        if self.provider == "groq" and not api_key:
             return self._fallback(user_prompt, context, start, error="no_api_key")
 
         user_message = (
             f"{build_evidence_block(context)}\n\n"
             f"QUESTION: {user_prompt}"
         )
-        try:
-            text = self._groq_call_fn(
-                system_prompt,
-                user_message,
-                api_key,
-                self.timeout_seconds,
-                self.max_completion_tokens,
-            )
-            if not text or not text.strip():
-                return self._fallback(user_prompt, context, start, error="empty_response")
 
-            citation_check = verify_citations(text, len(context))
-            latency_ms = (time.perf_counter() - start) * 1000
-            return LLMResponse(
-                text=text,
-                generation_mode="llm",
-                model=self.model,
-                latency_ms=round(latency_ms, 1),
-                citation_check=citation_check,
+        providers_to_try = self._build_provider_list(api_key)
+        if not providers_to_try:
+            return self._fallback(user_prompt, context, start, error="no_api_key")
+
+        last_error = "all_providers_failed"
+        for prov in providers_to_try:
+            try:
+                text, model_id = self._call_provider(
+                    prov, system_prompt, user_message, api_key
+                )
+                if not text or not text.strip():
+                    last_error = "empty_response"
+                    logger.debug("Provider %s returned empty -- trying next.", prov)
+                    continue
+
+                citation_check = verify_citations(text, len(context))
+                latency_ms = (time.perf_counter() - start) * 1000
+
+                p_tokens, c_tokens, cost = self._record_usage(
+                    system_prompt + user_message, text, model_id
+                )
+
+                return LLMResponse(
+                    text=text.strip(),
+                    generation_mode="llm",
+                    model=model_id,
+                    provider=prov,
+                    latency_ms=round(latency_ms, 1),
+                    citation_check=citation_check,
+                    prompt_tokens=p_tokens,
+                    completion_tokens=c_tokens,
+                    estimated_cost_usd=cost,
+                )
+
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Provider '%s' failed (%s: %s); trying next.",
+                    prov, type(exc).__name__, exc,
+                )
+
+        return self._fallback(user_prompt, context, start, error=last_error)
+
+    def _build_provider_list(self, api_key: Optional[str]) -> List[str]:
+        if self.provider == "groq":
+            return ["groq"]
+        if self.provider == "ollama":
+            return ["ollama"]
+        chain = []
+        if api_key:
+            chain.append("groq")
+        chain.append("ollama")
+        return chain
+
+    def _call_provider(
+        self,
+        provider_name: str,
+        system_prompt: str,
+        user_message: str,
+        api_key: Optional[str],
+    ) -> tuple[str, str]:
+        if provider_name == "groq":
+            if not api_key:
+                raise ValueError("No Groq API key available")
+            text = self._groq_call_fn(
+                system_prompt, user_message, api_key,
+                self.timeout_seconds, self.max_completion_tokens,
             )
+            return text, self.model
+
+        if provider_name == "ollama":
+            text = _call_ollama(
+                system_prompt, user_message,
+                model=self.ollama_model,
+                timeout_seconds=self.timeout_seconds + 7.0,
+                max_completion_tokens=self.max_completion_tokens,
+                host=self.ollama_host,
+            )
+            return text, f"ollama/{self.ollama_model}"
+
+        raise ValueError(f"Unknown provider: {provider_name}")
+
+    def _record_usage(
+        self, prompt_text: str, completion_text: str, model_id: str
+    ) -> tuple[int, int, float]:
+        if not self.track_usage:
+            return 0, 0, 0.0
+        try:
+            from .token_budget import count_tokens, get_usage_store
+            p_tok = count_tokens(prompt_text, model_id)
+            c_tok = count_tokens(completion_text, model_id)
+            cost = get_usage_store().record_usage(
+                tenant_id=self.tenant_id,
+                department=self.department,
+                model=model_id,
+                prompt_tokens=p_tok,
+                completion_tokens=c_tok,
+            )
+            return p_tok, c_tok, cost
         except Exception as exc:
-            return self._fallback(
-                user_prompt, context, start,
-                error=f"{type(exc).__name__}: {exc}",
-            )
+            logger.debug("Usage tracking failed (non-fatal): %s", exc)
+            return 0, 0, 0.0
 
     def _fallback(
         self,
@@ -184,15 +349,15 @@ class LLMClient:
         timeout_seconds: float,
         max_completion_tokens: int,
     ) -> str:
-        """Written against Groq's documented OpenAI-compatible chat completions API."""
-        from groq import Groq  # type: ignore[import-untyped]
-        client = Groq(api_key=api_key, timeout=timeout_seconds)
-        completion = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            max_completion_tokens=max_completion_tokens,
-        )
-        return completion.choices[0].message.content
+        return _call_groq(system_prompt, user_message, api_key, timeout_seconds, max_completion_tokens)
+
+    @staticmethod
+    def _call_ollama_default(
+        system_prompt: str,
+        user_message: str,
+        model: str = "llama3.2:1b",
+        timeout_seconds: float = 15.0,
+        max_completion_tokens: int = 500,
+        host: str = "http://localhost:11434",
+    ) -> str:
+        return _call_ollama(system_prompt, user_message, model, timeout_seconds, max_completion_tokens, host)

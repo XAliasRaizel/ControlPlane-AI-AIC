@@ -1,0 +1,7 @@
+display_name: Default Tenant
+prompt_versions:
+  ask_controlplane: "latest"
+  rlhf_judge: "latest"
+  grounding_extractor: "latest"
+daily_budget_usd: 50.0
+allowed_departments: []

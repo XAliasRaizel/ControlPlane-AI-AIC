@@ -171,7 +171,7 @@ with st.sidebar:
         ["support-bot", "hr-copilot", "loan-decision", "hiring-decision", "medical-decision"],
     )
     department = st.text_input("Department", "HR")
-    user_role = st.selectbox("User Role", ["employee", "hr-manager", "finance-manager", "doctor", "admin"])
+    user_role = st.selectbox("User Role", ["employee", "hr-manager", "finance-manager", "doctor", "admin", "security_auditor"])
     data_classification = st.selectbox("Data Classification", ["PUBLIC", "INTERNAL", "HIGH", "RESTRICTED"])
 
     st.divider()
@@ -1128,14 +1128,16 @@ Governance Request
                     "HOLD": "✅ HOLD",
                     "INSUFFICIENT_DATA": "⏳ Insufficient Data",
                 }.get(action, action)
+                old_thresh = d.get("old_threshold")
+                new_thresh = d.get("new_threshold")
                 rows.append({
                     "Decision": badge,
                     "Rule ID": d["rule_id"],
                     "Policy": d["policy_id"],
                     "Override Rate": f"{d['override_rate']:.0%}" if d["sample_size"] > 0 else "—",
                     "Reviews": d["sample_size"],
-                    "Current Threshold": d.get("old_threshold") if d.get("old_threshold") is not None else "—",
-                    "New Threshold": d.get("new_threshold") if d.get("new_threshold") is not None else "—",
+                    "Current Threshold": str(old_thresh) if old_thresh is not None else "—",
+                    "New Threshold": str(new_thresh) if new_thresh is not None else "—",
                 })
             df_tune = pd.DataFrame(rows)
             st.dataframe(df_tune, use_container_width=True, hide_index=True)

@@ -1,0 +1,160 @@
+[
+  {
+    "id": "eval_001",
+    "query": "What is the policy for employees accessing salary data without authorization?",
+    "ground_truth_claims": [
+      "Unauthorized access to salary data violates HR policy",
+      "PII data access requires proper authorization",
+      "GDPR Article 6 requires lawful basis for processing personal data"
+    ],
+    "expected_sources": ["hr", "gdpr"],
+    "category": "policy_retrieval"
+  },
+  {
+    "id": "eval_002",
+    "query": "What are the GDPR requirements for lawful processing of personal data?",
+    "ground_truth_claims": [
+      "GDPR Article 6 defines lawful bases for processing",
+      "Consent or legitimate interest must be established",
+      "Data minimisation principle applies"
+    ],
+    "expected_sources": ["gdpr"],
+    "category": "regulatory_compliance"
+  },
+  {
+    "id": "eval_003",
+    "query": "What controls are required before an AI system can make automated employment decisions?",
+    "ground_truth_claims": [
+      "Automated decisions require human oversight mechanisms",
+      "GDPR Article 22 restricts fully automated decision-making",
+      "Right to explanation must be provided"
+    ],
+    "expected_sources": ["gdpr"],
+    "category": "ai_governance"
+  },
+  {
+    "id": "eval_004",
+    "query": "What are the data protection requirements for healthcare systems processing medical records?",
+    "ground_truth_claims": [
+      "Health data is a special category under GDPR Article 9",
+      "HIPAA requires safeguards for protected health information",
+      "Explicit consent or legal obligation required"
+    ],
+    "expected_sources": ["hipaa", "gdpr"],
+    "category": "healthcare_compliance"
+  },
+  {
+    "id": "eval_005",
+    "query": "What is the policy for submitting expense reports?",
+    "ground_truth_claims": [
+      "Expense reports must be submitted within a specified period",
+      "Receipts are required for reimbursements above threshold"
+    ],
+    "expected_sources": ["hr", "finance"],
+    "category": "internal_policy"
+  },
+  {
+    "id": "eval_006",
+    "query": "How many days of annual leave do full-time employees receive?",
+    "ground_truth_claims": [
+      "Full-time employees receive 18 days of annual leave"
+    ],
+    "expected_sources": ["hr"],
+    "category": "internal_policy"
+  },
+  {
+    "id": "eval_007",
+    "query": "What security controls apply to AI systems handling sensitive financial data?",
+    "ground_truth_claims": [
+      "AI systems must implement access controls",
+      "Financial data requires encryption at rest and in transit",
+      "Audit logs must be maintained"
+    ],
+    "expected_sources": ["finance", "gdpr"],
+    "category": "ai_governance"
+  },
+  {
+    "id": "eval_008",
+    "query": "What is the dual approval requirement for Finance PII access?",
+    "ground_truth_claims": [
+      "Finance PII access requires dual approval from two authorized managers",
+      "Single-person authorization is insufficient for sensitive finance data"
+    ],
+    "expected_sources": ["finance", "hr"],
+    "category": "access_control"
+  },
+  {
+    "id": "eval_009",
+    "query": "What happens when a governance request is blocked by policy?",
+    "ground_truth_claims": [
+      "Blocked requests are logged in the audit trail",
+      "The user receives an explanation of which policy triggered the block"
+    ],
+    "expected_sources": ["hr", "gdpr"],
+    "category": "governance_process"
+  },
+  {
+    "id": "eval_010",
+    "query": "What are the requirements for AI model transparency and explainability?",
+    "ground_truth_claims": [
+      "AI systems must provide explanations for decisions",
+      "High-risk AI systems require documentation of training data",
+      "Users have the right to contest automated decisions"
+    ],
+    "expected_sources": ["gdpr"],
+    "category": "ai_governance"
+  },
+  {
+    "id": "eval_011",
+    "query": "What data retention policy applies to employee personal information?",
+    "ground_truth_claims": [
+      "Personal data must not be kept longer than necessary",
+      "Retention periods must be defined and documented",
+      "Data must be securely deleted after retention period"
+    ],
+    "expected_sources": ["gdpr", "hr"],
+    "category": "data_governance"
+  },
+  {
+    "id": "eval_012",
+    "query": "What are the cross-border data transfer restrictions under GDPR?",
+    "ground_truth_claims": [
+      "Data transfers outside the EU require adequate protection",
+      "Standard Contractual Clauses or adequacy decisions are required"
+    ],
+    "expected_sources": ["gdpr"],
+    "category": "regulatory_compliance"
+  },
+  {
+    "id": "eval_013",
+    "query": "What is the breach notification requirement under GDPR?",
+    "ground_truth_claims": [
+      "Data breaches must be reported to supervisory authority within 72 hours",
+      "Affected data subjects must be notified of high-risk breaches"
+    ],
+    "expected_sources": ["gdpr"],
+    "category": "incident_response"
+  },
+  {
+    "id": "eval_014",
+    "query": "What workplace monitoring policies apply to employee communications?",
+    "ground_truth_claims": [
+      "Employees must be informed of any monitoring",
+      "Monitoring must have a lawful basis",
+      "Proportionality principle must be respected"
+    ],
+    "expected_sources": ["hr", "gdpr"],
+    "category": "internal_policy"
+  },
+  {
+    "id": "eval_015",
+    "query": "What is the policy for customer support requests containing personal information or PII?",
+    "ground_truth_claims": [
+      "Customer PII must be handled according to data protection policy",
+      "Support responses must redact personal data and PII",
+      "Customer data must not be stored beyond resolution of the request"
+    ],
+    "expected_sources": ["support", "gdpr"],
+    "category": "customer_data"
+  }
+]

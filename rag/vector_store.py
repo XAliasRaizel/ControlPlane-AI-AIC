@@ -125,8 +125,13 @@ class _SimpleVectorStore:
 
 
 class VectorStore:
-    def __init__(self, collection_name: str, persist_dir: str | None = None):
-        self.collection_name = collection_name
+    def __init__(self, collection_name: str, persist_dir: str | None = None, tenant_id: str = "default"):
+        # Apply tenant namespace: acme_corp__policy_evidence
+        if tenant_id and tenant_id != "default":
+            self.collection_name = f"{tenant_id}__{collection_name}"
+        else:
+            self.collection_name = collection_name
+        self.tenant_id = tenant_id
         self.persist_dir = Path(persist_dir or rag_settings.vector_store_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         
@@ -166,6 +171,11 @@ class VectorStore:
     ) -> None:
         if not ids:
             return
+        # Inject tenant_id into all records for double-safety filtering
+        if self.tenant_id != "default":
+            metadatas = [
+                dict(m, tenant_id=self.tenant_id) for m in metadatas
+            ]
         if self._fallback is not None:
             self._fallback.upsert(ids, texts, embeddings, metadatas)
             return

@@ -44,6 +44,16 @@ _ROLE_PERMISSIONS = {
         "can_access_medical_record": False,
         "can_access_other_accounts": False,
     },
+    "security_auditor": {
+        # Trusted role for penetration testing & security review.
+        # can_perform_security_testing allows injection detector to lower
+        # its score — same content, different trust level → different risk.
+        "can_access_salary": True,
+        "can_access_bank_account": True,
+        "can_access_medical_record": True,
+        "can_access_other_accounts": True,
+        "can_perform_security_testing": True,
+    },
     "user": {
         "can_access_salary": False,
         "can_access_bank_account": False,

@@ -96,6 +96,25 @@ review_queue = ReviewQueue(db=db)
 feedback_evaluator = FeedbackEvaluator()
 gpu = GPUAdapter()
 
+# Tamper-Evident Audit Ledger — wired to all governance decisions.
+# Uses a separate SQLite table (audit_records) + an append-only anchor
+# file (.integrity.jsonl) so the chain can be verified independently.
+import pathlib as _pathlib
+from backend.audit_integrity.backends import AuditRecordBackend, AnchorBackend
+from backend.audit_integrity.ledger import TamperEvidentAuditLedger
+
+_ledger_db_path   = settings.db_path
+_anchor_path      = str(_pathlib.Path(_ledger_db_path).with_suffix(".integrity.jsonl"))
+_hmac_secret      = settings.audit_hash_key.encode("utf-8")
+_ledger_records   = AuditRecordBackend(_ledger_db_path)
+_ledger_anchors   = AnchorBackend(_anchor_path)
+ledger            = TamperEvidentAuditLedger(
+    record_backend=_ledger_records,
+    anchor_backend=_ledger_anchors,
+    hmac_secret=_hmac_secret,
+    checkpoint_interval=5,          # seal a Merkle checkpoint every 5 records
+)
+
 
 @app.post("/admin/reload-models", tags=["admin"])
 async def reload_models():
@@ -262,6 +281,22 @@ async def govern(
         policy=policy.model_dump(mode="json"),
         decision_details=decision.model_dump(mode="json"),
     )
+
+    # Tamper-evident Merkle ledger — append alongside the SQLite audit.
+    # Fail-open: a ledger error must never interrupt the governance response.
+    try:
+        ledger.append({
+            "request_id":        request_id,
+            "prompt_fingerprint": fingerprint(request.prompt),
+            "decision":          decision.action,
+            "risk":              round(risk.overall_risk, 4),
+            "policy_id":         policy.policy_id,
+            "latency_ms":        round(latency_ms, 2),
+            "user_role":         request.user_role or "unknown",
+            "application_id":    request.application_id or "unknown",
+        })
+    except Exception as _ledger_exc:
+        logger.warning("Merkle ledger append failed (non-fatal): %s", _ledger_exc)
 
     logger.info(
         "governance_decision request_id=%s action=%s risk=%.3f latency=%.1fms fingerprint=%s",

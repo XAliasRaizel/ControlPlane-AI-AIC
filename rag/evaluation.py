@@ -174,16 +174,91 @@ def run_ask_controlplane_eval(db=None) -> EvalReport:
     return report
 
 
-def run_all(db=None) -> list[EvalReport]:
-    return [run_policy_rag_eval(), run_grounding_eval(), run_ask_controlplane_eval(db=db)]
+def run_rag_triad_eval(top_k: int = 5) -> EvalReport:
+    """Run the automated RAG Triad evaluation against the golden dataset.
+
+    Measures:
+      1. Context Relevance  - cosine similarity of query vs retrieved chunks
+      2. Groundedness       - NLI entailment of answer vs context
+      3. Answer Relevance   - cosine similarity of query vs generated answer
+
+    Returns an EvalReport with per-metric scores in the details.
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path as _Path
+
+    _eval_root = _Path(__file__).resolve().parents[1]
+    golden_path = _eval_root / "data" / "eval" / "golden_rag_triad.json"
+    script_path = _eval_root / "scripts" / "eval_rag_triad.py"
+
+    report = EvalReport(name="RAG Triad (Context Relevance / Groundedness / Answer Relevance)")
+
+    if not golden_path.exists():
+        report.total = 3
+        report.passed = 0
+        report.details = [{"error": f"Golden dataset not found: {golden_path}"}]
+        return report
+
+    if not script_path.exists():
+        report.total = 3
+        report.passed = 0
+        report.details = [{"error": f"Eval script not found: {script_path}"}]
+        return report
+
+    try:
+        spec = importlib.util.spec_from_file_location("eval_rag_triad", script_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        summary = mod.run_rag_triad_eval(
+            dataset_path=golden_path,
+            top_k=top_k,
+            verbose=False,
+        )
+
+        cr = summary.get("avg_context_relevance", 0.0)
+        gr = summary.get("avg_groundedness", 0.0)
+        ar = summary.get("avg_answer_relevance", 0.0)
+
+        thresholds = {"context_relevance": 0.65, "groundedness": 0.65, "answer_relevance": 0.70}
+        report.total = 3
+        report.passed = sum([
+            1 if cr >= thresholds["context_relevance"] else 0,
+            1 if gr >= thresholds["groundedness"] else 0,
+            1 if ar >= thresholds["answer_relevance"] else 0,
+        ])
+        report.details = [
+            {"metric": "context_relevance", "score": cr,
+             "threshold": thresholds["context_relevance"], "pass": cr >= thresholds["context_relevance"]},
+            {"metric": "groundedness", "score": gr,
+             "threshold": thresholds["groundedness"], "pass": gr >= thresholds["groundedness"]},
+            {"metric": "answer_relevance", "score": ar,
+             "threshold": thresholds["answer_relevance"], "pass": ar >= thresholds["answer_relevance"]},
+        ]
+    except Exception as exc:
+        report.total = 3
+        report.passed = 0
+        report.details = [{"error": str(exc), "pass": False}]
+
+    return report
 
 
-def print_report(reports: list[EvalReport]) -> None:
+def run_all(db=None) -> list:
+    return [
+        run_policy_rag_eval(),
+        run_grounding_eval(),
+        run_ask_controlplane_eval(db=db),
+        run_rag_triad_eval(),
+    ]
+
+
+def print_report(reports: list) -> None:
     for r in reports:
         print(f"\n{r.name}: {r.passed}/{r.total} passed ({r.pass_rate:.0%})")
         for d in r.details:
-            mark = "PASS" if d["pass"] else "FAIL"
-            label = d.get("query") or d.get("label") or d.get("question")
+            mark = "PASS" if d.get("pass") else "FAIL"
+            label = d.get("query") or d.get("label") or d.get("question") or d.get("metric") or d.get("error", "?")
             print(f"  [{mark}] {label}")
 
 

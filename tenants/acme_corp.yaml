@@ -1,0 +1,11 @@
+display_name: Acme Corp (Enterprise)
+prompt_versions:
+  ask_controlplane: "production"
+  rlhf_judge: "latest"
+  grounding_extractor: "latest"
+daily_budget_usd: 200.0
+allowed_departments:
+  - finance
+  - hr
+  - engineering
+  - legal

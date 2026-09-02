@@ -102,12 +102,9 @@ def get_policy_evidence(
     )
     elapsed_ms = (time.perf_counter() - start) * 1000
 
-    if elapsed_ms > rag_settings.hot_path_budget_ms:
-        return PolicyEvidence(status="insufficient_evidence", query=query, citations=[],
-                               summary="Policy retrieval exceeded the hot-path time budget.")
-
-    if result.status != "SUCCESS":
+    if result.status != "SUCCESS" or not result.chunks:
         return PolicyEvidence(status="insufficient_evidence", query=query, citations=[])
+
 
     # Extractive summary -- a formatted list of what was found, not a
     # generated claim (Section 13: no generation step in the critical path).

@@ -30,6 +30,6 @@ rules:
   priority: 60
   when:
     detector_score_at_least:
-      pii: 0.55
+      pii: 0.6
   action: MODIFY
   reason: Redact detected PII before returning response

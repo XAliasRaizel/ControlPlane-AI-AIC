@@ -4,6 +4,9 @@ backend/app/llm/prompts.py
 Task-specific prompt builders for the shared LLMClient.
 Both features call the same LLMClient -- this file is where
 "which task" lives, not a second client implementation.
+
+v2: Registry-backed builders delegate to versioned Jinja2 templates in
+    prompts/ directory. Existing callers are unaffected (zero breaking changes).
 """
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ from typing import List, Optional
 
 
 def build_chatbot_system_prompt() -> str:
-    """System prompt for Governance Chatbot / Ask ControlPlane."""
+    """System prompt for Governance Chatbot / Ask ControlPlane (v1 inline fallback)."""
     return (
         "You are ControlPlane.ai's governance assistant. Answer the user's question "
         "using ONLY the evidence provided to you inside the <evidence> block. Cite "
@@ -101,3 +104,40 @@ def parse_inspection_result(
             citation_check=citation_check,
             raw_text=raw_json,
         )
+
+
+# ---------------------------------------------------------------------------
+# Registry-backed prompt builders (v2 — delegates to versioned Jinja2 files)
+# ---------------------------------------------------------------------------
+
+def build_chatbot_system_prompt_v2(department: str = "", max_tokens: int = 400) -> str:
+    """Return the v2 Jinja2-rendered chatbot prompt with optional department context."""
+    try:
+        from .prompt_registry import get_registry
+        return get_registry().render(
+            "ask_controlplane", version="v2",
+            department=department, max_tokens=max_tokens,
+        )
+    except Exception:
+        return build_chatbot_system_prompt()  # safe fallback to inline v1
+
+
+def build_rlhf_judge_prompt() -> str:
+    """Return the RLHF judge system prompt from the versioned registry."""
+    try:
+        from .prompt_registry import get_registry
+        return get_registry().render("rlhf_judge", version="v1")
+    except Exception:
+        return (
+            "You are a governance quality judge. Evaluate the following AI decision "
+            "against the provided policy evidence and return a JSON analysis."
+        )
+
+
+def build_grounding_extractor_prompt() -> str:
+    """Return the grounding extractor prompt from the versioned registry."""
+    try:
+        from .prompt_registry import get_registry
+        return get_registry().render("grounding_extractor", version="v1")
+    except Exception:
+        return "You are a grounding verification assistant. Check if claims are supported by evidence."

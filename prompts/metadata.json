@@ -1,0 +1,21 @@
+{
+  "_comment": "Semantic version aliases for prompt templates. Maps alias name -> exact vX.Y.Z version.",
+  "ask_controlplane": {
+    "production": "v2.0.0",
+    "stable": "v1.0.0",
+    "canary": "v2.1.0",
+    "latest": "v2.1.0"
+  },
+  "rlhf_judge": {
+    "production": "v1.0.0",
+    "stable": "v1.0.0",
+    "canary": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "grounding_extractor": {
+    "production": "v1.0.0",
+    "stable": "v1.0.0",
+    "canary": "v1.0.0",
+    "latest": "v1.0.0"
+  }
+}

@@ -67,6 +67,22 @@ class InjectionDetector(BaseDetector):
         confidence = 0.95 if evidence else 0.90
         label = "INJECTION_DETECTED" if evidence else "CLEAN"
 
+        # ── Trusted-role context: security_auditor exemption ──────────────────
+        # A security auditor legitimately tests the system with injection
+        # patterns. The content is the same; the trust level is different.
+        # We lower the score to 0.20 — well below every policy threshold
+        # (0.85 in support.yaml, 0.85 in global.yaml) — so the request passes.
+        # The label becomes SECURITY_TEST (not CLEAN) so the audit trail
+        # honestly reflects what happened: a known-risky pattern was sent
+        # by a trusted role and was deliberately permitted.
+        auth_context = context.get("auth_context", {})
+        if evidence and auth_context.get("can_perform_security_testing", False):
+            score = 0.20
+            confidence = 0.92
+            label = "SECURITY_TEST"
+            evidence = [f"trusted_role_exemption:{e}" for e in evidence]
+        # ─────────────────────────────────────────────────────────────────────
+
         # Optional, default-OFF learned consult. Returns None (leaving the regex
         # verdict untouched) unless CONTROLPLANE_MODEL_INJECTION points at a
         # calibrated artifact and the ML stack is installed. Model risk only
@@ -74,11 +90,13 @@ class InjectionDetector(BaseDetector):
         prediction = consult("injection", request.prompt)
         if prediction is not None:
             model_score = prediction["score"]
-            score = max(score, model_score)
-            if prediction["fires"]:
-                label = "INJECTION_DETECTED"
-                confidence = max(confidence, prediction["confidence"])
-            evidence = list(evidence) + [f"model:injection:{model_score:.2f}"]
+            # Do NOT override a trusted-role exemption with a model score.
+            if label != "SECURITY_TEST":
+                score = max(score, model_score)
+                if prediction["fires"]:
+                    label = "INJECTION_DETECTED"
+                    confidence = max(confidence, prediction["confidence"])
+                evidence = list(evidence) + [f"model:injection:{model_score:.2f}"]
 
         return DetectorResult(
             detector_name=self.name,

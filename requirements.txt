@@ -11,3 +11,16 @@ chromadb==1.5.9
 scikit-learn==1.8.0
 numpy>=1.26
 groq>=1.7.0
+
+# RAG upgrade dependencies (Phase 1 improvements)
+# Enable with env vars: RAG_EMBEDDING_BACKEND=sentence_transformers
+#                       RAG_RERANK_ENABLED=true
+#                       RAG_NLI_ENABLED=true
+#                       RAG_BM25_ENABLED=true
+sentence-transformers>=3.0.0
+rank_bm25>=0.2.2
+
+# LLM Layer upgrade dependencies (Phase 2 improvements)
+tenacity>=8.2.0          # exponential backoff retries for provider calls
+tiktoken>=0.7.0          # fast BPE token counting for cost budgets
+jinja2>=3.1.0            # versioned prompt template rendering
