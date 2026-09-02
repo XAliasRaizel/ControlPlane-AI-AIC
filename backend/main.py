@@ -239,6 +239,12 @@ async def lifespan(app: FastAPI):
     # Graceful shutdown: drain and stop the task queue
     await _task_queue.stop()
     logger.info("AsyncTaskQueue drained and stopped.")
+    try:
+        from backend.shared.model_backend import _EXECUTOR
+        _EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        logger.info("ML ThreadPoolExecutor shut down.")
+    except Exception as exc:
+        logger.warning("ML ThreadPoolExecutor shutdown: %s", exc)
 
 
 app = FastAPI(
@@ -403,6 +409,16 @@ async def health_deep():
     except Exception as exc:
         components["session_store"] = {"status": "error", "detail": str(exc)}
         overall_ok = False
+
+    # 4. Async ML thread pool check
+    try:
+        from backend.shared.model_backend import _EXECUTOR
+        components["ml_executor"] = {
+            "status": "ok",
+            "max_workers": getattr(_EXECUTOR, "_max_workers", 4),
+        }
+    except Exception as exc:
+        components["ml_executor"] = {"status": "error", "detail": str(exc)}
 
     status_code = 200 if overall_ok else 503
     return JSONResponse(

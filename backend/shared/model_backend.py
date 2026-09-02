@@ -572,3 +572,7 @@ def reset_cache() -> None:
     """Drop cached models. Used by tests and after environment changes."""
     with _lock:
         _cache.clear()
+    try:
+        _consult_sensitive_intent_sync.cache_clear()
+    except Exception:
+        pass

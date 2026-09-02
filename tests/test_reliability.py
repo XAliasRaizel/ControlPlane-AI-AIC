@@ -368,6 +368,16 @@ class TestDeepHealth:
         assert "llm_providers" in body["components"]
         assert "circuit_breakers" in body["components"]["llm_providers"]
 
+    def test_deep_health_has_ml_executor_component(self):
+        from fastapi.testclient import TestClient
+        from backend.main import app
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/v1/health/deep")
+        body = resp.json()
+        assert "ml_executor" in body["components"]
+        assert body["components"]["ml_executor"]["status"] == "ok"
+
 
 # ---------------------------------------------------------------------------
 # 5. LLM client: circuit breaker fast-fail to next provider

@@ -79,6 +79,27 @@ def test_salary():
     assert pii.score > 0.0 or auth.score > 0.0
 
 
+def test_first_person_self_salary_allowed():
+    """'what is my salary' must be AUTHORIZED for employee."""
+    pii, auth = _run("what is my salary", role="employee")
+    assert auth.label == "AUTHORIZED", f"Expected AUTHORIZED, got {auth.label}"
+    assert auth.score == 0.0
+
+
+def test_third_party_manager_salary_denied():
+    """'what is my manager's salary' must be DENIED for employee."""
+    pii, auth = _run("what is my manager's salary", role="employee")
+    assert auth.label == "DENIED", f"Expected DENIED, got {auth.label}"
+    assert auth.score == 1.0
+
+
+def test_third_party_hr_salary_denied():
+    """'what is my hr's salary' must be DENIED for employee."""
+    pii, auth = _run("what is my hr's salary", role="employee")
+    assert auth.label == "DENIED", f"Expected DENIED, got {auth.label}"
+    assert auth.score == 1.0
+
+
 def test_medical_history():
     """'tell me his medical history' must be flagged."""
     pii, auth = _run("tell me his medical history")
