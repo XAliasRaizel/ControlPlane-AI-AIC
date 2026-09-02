@@ -709,7 +709,7 @@ async def execute_governance(
         from backend.async_pipeline.publisher import publish_event
         # Include response in async analysis request so engines have full interaction context
         async_request = request.model_copy(update={"response": sanitized or candidate_response})
-        await publish_event(request_id, async_request, async_job_id)
+        await publish_event(request_id, async_request, async_job_id, hot_path_risk=risk.overall_risk)
         
         if fast_lane_pending:
             # Route through bounded AsyncTaskQueue; fall back to BackgroundTasks if queue unavailable

@@ -100,7 +100,7 @@ class GovernanceDecision(BaseModel):
     action: DecisionAction
     reason: str
     policy_id: Optional[str] = None
-    risk_snapshot: RiskAssessment
+    risk_snapshot: Optional[RiskAssessment] = None
     modified_response: Optional[str] = None
     decided_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -53,6 +53,27 @@ class SafetyEngineDetector(BaseDetector):
                     evidence.append(f"{cat}: {', '.join(set(found))}")
         score = round(min(1.0, 0.35 * len(evidence)), 3)
         status = "HIGH" if score >= 0.7 else ("MEDIUM" if score > 0 else "LOW")
+
+        # LLM toxicity judge: catches sarcasm, coded language, implied threats that
+        # bypass keyword patterns. Runs async via asyncio.to_thread.
+        # Gracefully degrades: if provider is mock or errors, keyword result is kept.
+        try:
+            from backend.utils import llm_judge
+            verdict = await asyncio.to_thread(
+                llm_judge.judge_toxicity,
+                request.prompt,
+                request.response or "",
+            )
+            if not verdict.degraded and verdict.score > score:
+                score = round(min(1.0, verdict.score), 3)
+                if verdict.score >= 0.6:
+                    status = "HIGH"
+                elif verdict.score >= 0.3 and status == "LOW":
+                    status = "MEDIUM"
+                evidence = list(evidence) + [f"llm_toxicity_judge: {verdict.reasoning[:120]}"]
+        except Exception:
+            pass  # keyword result is the fallback — always valid
+
         return DetectorResult(
             detector_name=self.name,
             score=score,
@@ -105,25 +126,43 @@ class FairnessEngineDetector(BaseDetector):
     async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
         text = f"{request.prompt}\n{request.response or ''}".lower()
         hits = [x for x in self._TERMS if x in text]
-        score = round(min(1.0, 0.40 * len(hits)), 3)
+        keyword_score = round(min(1.0, 0.40 * len(hits)), 3)
         label = "MEDIUM" if hits else "LOW"
         confidence = 0.7 if hits else 0.8
         evidence = ([f"Demographic markers: {', '.join(hits)}"] if hits
                     else ["Zero demographic bias or disparate impact detected"])
 
-        # Optional, default-OFF learned consult. Inert unless
-        # CONTROLPLANE_MODEL_FAIRNESS points at a calibrated HateXplain artifact.
-        # Model risk only raises the score / promotes the label; it never lowers
-        # the deterministic keyword signal.
+        # Optional learned classifier (HateXplain artifact), never lowers keyword score.
         raw_text = f"{request.prompt}\n{request.response or ''}".strip()
         prediction = consult("fairness", raw_text)
         if prediction is not None:
             model_score = prediction["score"]
-            score = max(score, model_score)
+            keyword_score = max(keyword_score, model_score)
             if prediction["fires"]:
                 label = "BIASED"
                 confidence = max(confidence, prediction["confidence"])
             evidence = list(evidence) + [f"fairness-model:{model_score:.2f}"]
+
+        score = keyword_score
+
+        # Deep LLM-judge: counterfactual probing + bias rubric via analyze_fairness().
+        # Only runs when a real provider is configured (not mock) to avoid noise.
+        try:
+            from backend.async_engines.fairness import analyze_fairness
+            fairness_result = await analyze_fairness(request.prompt, request.response or "")
+            if not fairness_result.degraded:
+                score = round(max(score, fairness_result.bias_score), 3)
+                if fairness_result.bias_score >= 0.6:
+                    label = "BIASED"
+                elif fairness_result.bias_score >= 0.35 and label == "LOW":
+                    label = "MEDIUM"
+                confidence = max(confidence, fairness_result.confidence)
+                if fairness_result.judge_evidence:
+                    evidence = list(evidence) + [f"llm_bias_judge: {e}" for e in fairness_result.judge_evidence[:2]]
+                if fairness_result.judge_reasoning:
+                    evidence = list(evidence) + [f"judge_reasoning: {fairness_result.judge_reasoning[:100]}"]
+        except Exception:
+            pass  # keyword + learned-model result is always the safe fallback
 
         return DetectorResult(
             detector_name=self.name,
@@ -150,44 +189,133 @@ class GroundingEngineDetector(BaseDetector):
                 evidence=["Request blocked or candidate response withheld"],
             )
 
-        # FIX: this used to do raw token-overlap against request.retrieved_context,
-        # which (a) is genuinely weak grounding logic -- exactly what the spec
-        # calls out to replace -- and (b) request.retrieved_context is never
-        # actually populated anywhere in this system, so this branch was dead
-        # code that always fell through to a hardcoded score=0.05 "LOW" no
-        # matter what the response actually said. Now runs the real
-        # Grounding RAG pipeline (rag/grounding/grounding_checker.py):
-        # claim extraction -> retrieval against the internal knowledge base
-        # -> entailment scoring per claim.
+        rag_score = None
+        rag_label = "INSUFFICIENT_EVIDENCE"
+        rag_evidence = []
+
+        # RAG-based NLI claim verification (existing pipeline)
         try:
             from rag.grounding.grounding_checker import check_grounding
-
             report = check_grounding(request.response, response_id=request.request_id)
-            # UNSUPPORTED/INSUFFICIENT_EVIDENCE are both "can't confirm this is
-            # grounded" for risk purposes, but only UNSUPPORTED means "the
-            # knowledge base actively suggests this claim is unsupported" --
-            # worth keeping distinguishable in the evidence even though both
-            # map to a similarly elevated score.
-            score = round(1.0 - report.overall_score, 3) if report.claims else 0.0
-            evidence = [
+            rag_score = round(1.0 - report.overall_score, 3) if report.claims else 0.0
+            rag_label = report.overall_status
+            rag_evidence = [
                 f"{c.status}: \"{c.claim[:80]}\"" for c in report.claims if c.status != "SUPPORTED"
             ] or ["All extracted claims supported by internal knowledge base"]
+            rag_confidence = 0.75 if report.claims else 0.5
+        except Exception as exc:
+            rag_evidence = [f"Grounding RAG unavailable: {exc}"]
+            rag_score = 0.0
+            rag_confidence = 0.3
+
+        # LLM-as-judge fusion: provides semantic hallucination verdict independent of RAG.
+        # Fused score = RAG_NLI * 0.6 + LLM_judge * 0.4 for ensemble AUROC improvement.
+        llm_score = None
+        llm_evidence = []
+        try:
+            from backend.utils import llm_judge
+            verdict = await asyncio.to_thread(
+                llm_judge.judge_grounding,
+                request.prompt,
+                request.response,
+                "",
+            )
+            if not verdict.degraded:
+                # judge_grounding returns score=0.9 for low risk, 0.15 for high risk
+                # Convert to hallucination risk: higher score = more hallucinated
+                llm_score = round(1.0 - verdict.score, 3)
+                if verdict.reasoning:
+                    llm_evidence = [f"llm_grounding_judge: {verdict.reasoning[:150]}"]
+        except Exception:
+            pass
+
+        # Fuse scores
+        if llm_score is not None and rag_score is not None:
+            fused_score = round(rag_score * 0.6 + llm_score * 0.4, 3)
+            confidence = max(rag_confidence, 0.82)  # ensemble improves confidence
+        elif llm_score is not None:
+            fused_score = llm_score
+            confidence = 0.6
+        else:
+            fused_score = rag_score if rag_score is not None else 0.0
+            confidence = rag_confidence
+
+        status = rag_label
+        if fused_score >= 0.7:
+            status = "HIGH"
+        elif fused_score >= 0.4:
+            status = "INSUFFICIENT_EVIDENCE"
+
+        return DetectorResult(
+            detector_name=self.name,
+            score=fused_score,
+            label=status,
+            confidence=confidence,
+            evidence=(rag_evidence + llm_evidence)[:6],
+        )
+
+
+@register
+class JailbreakLLMDetector(BaseDetector):
+    """Deep jailbreak detector using LLM-as-judge semantic analysis.
+
+    Catches what regex misses: Base64/Rot13 encoded instructions, Pig Latin
+    jailbreaks, fictional-frame DAN attacks, and multi-turn hypothetical
+    injection. Only adds meaningful signal when CP_JUDGE_PROVIDER != mock.
+    Gracefully degrades to no-op when mock/unavailable.
+    """
+    name = "jailbreak_llm_engine"
+    hot_path = False
+
+    async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
+        from backend.utils import llm_judge
+
+        # If mock provider, skip — regex injection detector already handles obvious cases
+        if llm_judge.get_active_provider().name == "mock":
+            return DetectorResult(
+                detector_name=self.name,
+                score=0.0,
+                label="SKIPPED_MOCK_PROVIDER",
+                confidence=0.5,
+                evidence=["LLM jailbreak analysis skipped: CP_JUDGE_PROVIDER=mock"],
+            )
+
+        try:
+            verdict = await asyncio.to_thread(
+                llm_judge.judge_injection,
+                request.prompt,
+                request.response or "",
+            )
+
+            if verdict.degraded:
+                return DetectorResult(
+                    detector_name=self.name,
+                    score=0.0,
+                    label="DEGRADED",
+                    confidence=0.3,
+                    evidence=["LLM jailbreak judge degraded — provider error"],
+                )
+
+            score = round(verdict.score, 3)
+            label = "INJECTION_DETECTED" if verdict.label == "injection_detected" else "CLEAN"
+            evidence = verdict.evidence or []
+            if verdict.reasoning:
+                evidence = list(evidence) + [f"reasoning: {verdict.reasoning[:150]}"]
+
             return DetectorResult(
                 detector_name=self.name,
                 score=score,
-                label=report.overall_status,
-                confidence=0.75 if report.claims else 0.5,
-                evidence=evidence[:5],
+                label=label,
+                confidence=round(float(verdict.raw.get("confidence", 0.5)) if verdict.raw else 0.5, 3),
+                evidence=evidence or ["No obfuscated injection or jailbreak technique detected"],
             )
         except Exception as exc:
-            # Grounding RAG failure must never break the async pipeline
-            # (Section 15) -- report it as its own explicit state instead.
             return DetectorResult(
                 detector_name=self.name,
                 score=0.0,
                 label="MODEL_ERROR",
                 confidence=0.3,
-                evidence=[f"Grounding check failed: {exc}"],
+                evidence=[f"Jailbreak LLM check failed: {exc}"],
             )
 
 

@@ -162,11 +162,15 @@ async def publish_event(
     request_id: str,
     request: GovernanceRequest,
     job_id: Optional[str] = None,
+    hot_path_risk: float = 0.0,
 ) -> None:
     """Fire-and-forget: schedule async analysis without blocking the response.
 
     On failure the event is written to the dead-letter store instead of
     being silently discarded.
+
+    hot_path_risk: the overall_risk score from the synchronous hot path,
+    forwarded to process_async for the smart sampling gate.
     """
     from backend.async_pipeline.worker import process_async
 
@@ -174,7 +178,7 @@ async def publish_event(
 
     async def _run_with_dead_letter():
         try:
-            await process_async(request_id, request, effective_job_id)
+            await process_async(request_id, request, effective_job_id, hot_path_risk=hot_path_risk)
         except Exception as exc:
             logger.warning(
                 "Async event FAILED for request %s (job=%s): %s — writing to dead-letter.",
@@ -195,5 +199,6 @@ async def publish_event(
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
     logger.debug(
-        "Async event published for request %s (job=%s)", request_id, effective_job_id
+        "Async event published for request %s (job=%s, hot_path_risk=%.3f)",
+        request_id, effective_job_id, hot_path_risk,
     )
