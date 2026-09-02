@@ -81,6 +81,18 @@ def _deserialize(line: str) -> dict:
 # Public interface
 # ---------------------------------------------------------------------------
 
+def _ensure_trailing_newline(path: Path) -> None:
+    """Ensure the file ends with a newline before appending a new record."""
+    try:
+        if path.exists() and path.stat().st_size > 0:
+            with path.open("rb+") as fh:
+                fh.seek(-1, os.SEEK_END)
+                if fh.read(1) != b"\n":
+                    fh.write(b"\n")
+    except Exception:
+        pass
+
+
 def write_pair(pair: PreferencePair, path: Path = RAW_JSONL_PATH) -> None:
     """Append a new, unlabelled pair to the JSONL file.
 
@@ -94,6 +106,7 @@ def write_pair(pair: PreferencePair, path: Path = RAW_JSONL_PATH) -> None:
         path: Override the default JSONL path (useful in tests).
     """
     _ensure_file(path)
+    _ensure_trailing_newline(path)
     record = pair.model_copy(update={"record_type": "initial"})
     with path.open("a", encoding="utf-8") as fh:
         fh.write(_serialize(record) + "\n")
@@ -133,6 +146,7 @@ def update_label(
         raise ValueError(f"[RLHF/json_store] invalid 'labeled_by' value: {labeled_by!r}")
 
     _ensure_file(path)
+    _ensure_trailing_newline(path)
     update_record = {
         "pair_id": pair_id,
         "record_type": "label_update",
@@ -177,9 +191,18 @@ def read_all_pairs(path: Path = RAW_JSONL_PATH) -> list[PreferencePair]:
             try:
                 raw_lines.append(_deserialize(line))
             except json.JSONDecodeError as exc:
-                logger.warning(
-                    "[RLHF/json_store] skipping malformed line %d: %s", lineno, exc
-                )
+                if "}{" in line:
+                    for sub in line.replace("}{", "}\n{").split("\n"):
+                        sub = sub.strip()
+                        if sub:
+                            try:
+                                raw_lines.append(_deserialize(sub))
+                            except Exception:
+                                pass
+                else:
+                    logger.warning(
+                        "[RLHF/json_store] skipping malformed line %d: %s", lineno, exc
+                    )
 
     # Group: pair_id -> {"initial": dict, "updates": [dict, ...]}
     groups: dict[str, dict] = {}

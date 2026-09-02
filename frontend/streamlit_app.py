@@ -301,6 +301,7 @@ Every AI request is evaluated through a <strong>7-stage governance pipeline</str
         # Chat input
         _demo = st.session_state.pop("demo_prompt", None)
         if user_prompt := (st.chat_input("Ask a question...") or _demo):
+            st.session_state["last_user_prompt"] = user_prompt
             st.session_state.chat_messages.append({"role": "user", "content": user_prompt, "governance": None, "async_data": None})
             payload = {
                 "user_id": user_id,
@@ -462,6 +463,31 @@ Every AI request is evaluated through a <strong>7-stage governance pipeline</str
                             st.success("Feedback recorded for threshold optimization!")
                     except Exception as e:
                         st.error(f"Error submitting feedback: {e}")
+
+            with st.expander("🏷️ Send to RLHF Human Labelling"):
+                st.caption("Generate a preference pair (API vs. Simulator) from this prompt and queue it for human review in Tab 7.")
+                if st.button("Generate Pair for Human Labelling", key="chat_to_rlhf_btn", use_container_width=True):
+                    with st.spinner("Generating dual-model responses..."):
+                        try:
+                            from rlhf.generators.api_vs_api import generate_api_vs_api_pair
+                            from rlhf.storage.json_store import write_pair
+                            from rlhf.config import Category
+                            import asyncio
+
+                            prompt_to_use = st.session_state.get("last_user_prompt") or ""
+                            if not prompt_to_use:
+                                prompt_to_use = "Test prompt for human review"
+                            cat_name = "HR" if department == "HR" else ("FINANCIAL" if department in ("Finance", "FINANCIAL") else "GENERAL")
+                            new_p = asyncio.run(
+                                generate_api_vs_api_pair(
+                                    prompt=prompt_to_use,
+                                    category=Category(cat_name),
+                                )
+                            )
+                            write_pair(new_p)
+                            st.success(f"✅ Generated unlabelled pair `{new_p.pair_id[:8]}`! Go to **RLHF Monitor (Tab 7) → Human Labelling** to review.")
+                        except Exception as err:
+                            st.error(f"Failed to generate pair: {err}")
         else:
             st.info("💡 Send a message in the chat to see real-time hot-path detector scores, policy decisions, and async deep analysis.")
             st.caption("👈 Use the **Demo Scenarios** buttons in the sidebar to quickly launch pre-built test cases.")
@@ -1402,36 +1428,67 @@ with tab_rlhf:
     test_p_cat = gen_p_col2.selectbox("Domain Category", ["HR", "FINANCIAL", "GENERAL"], key="direct_rlhf_cat",
                                        help="Target policy domain for preference pair categorization.")
 
-    if st.button("🚀 Generate & Judge Pair Now", type="primary", key="direct_gen_pair_btn", use_container_width=True):
-        with st.spinner("Generating dual-model responses & evaluating with LLM Judge..."):
-            try:
-                from rlhf.generators.api_vs_api import generate_api_vs_api_pair
-                from rlhf.judges.llm_judge import judge_pair_with_llm
-                from rlhf.storage.json_store import write_pair, update_label
-                from rlhf.config import Category
-                import asyncio
+    gen_b_col1, gen_b_col2 = st.columns(2)
+    with gen_b_col1:
+        if st.button("🚀 Generate & Auto-Judge (LLM)", type="primary", key="direct_gen_pair_btn", use_container_width=True):
+            with st.spinner("Generating dual-model responses & evaluating with LLM Judge..."):
+                try:
+                    from rlhf.generators.api_vs_api import generate_api_vs_api_pair
+                    from rlhf.judges.llm_judge import judge_pair_with_llm
+                    from rlhf.storage.json_store import write_pair, update_label
+                    from rlhf.config import Category
+                    import asyncio
 
-                cat_enum = Category(test_p_cat)
-                cfg_a = {"model_name": "openai/gpt-oss-120b", "temperature": 0.7, "max_tokens": 512}
-                cfg_b = {"model_name": "llm_simulator_v1", "temperature": 0.0, "max_tokens": 512}
+                    cat_enum = Category(test_p_cat)
+                    cfg_a = {"model_name": "openai/gpt-oss-120b", "temperature": 0.7, "max_tokens": 512}
+                    cfg_b = {"model_name": "llm_simulator_v1", "temperature": 0.0, "max_tokens": 512}
 
-                new_pair = asyncio.run(
-                    generate_api_vs_api_pair(
-                        prompt=test_p_input,
-                        model_config_a=cfg_a,
-                        model_config_b=cfg_b,
-                        category=cat_enum,
+                    new_pair = asyncio.run(
+                        generate_api_vs_api_pair(
+                            prompt=test_p_input,
+                            model_config_a=cfg_a,
+                            model_config_b=cfg_b,
+                            category=cat_enum,
+                        )
                     )
-                )
-                write_pair(new_pair)
-                judged = judge_pair_with_llm(new_pair, n_calls=2)
-                if judged.chosen:
-                    update_label(judged.pair_id, judged.chosen, "llm_judge", judged.judge_metadata)
+                    write_pair(new_pair)
+                    judged = judge_pair_with_llm(new_pair, n_calls=2)
+                    if judged.chosen:
+                        update_label(judged.pair_id, judged.chosen, "llm_judge", judged.judge_metadata)
 
-                st.session_state["last_generated_pair"] = judged
-                st.success(f"✅ Generated & stored pair `{judged.pair_id[:8]}` (Verdict: Winner is **Response {judged.chosen.upper()}** by LLM Judge)!")
-            except Exception as ex:
-                st.error(f"Generation failed: {ex}")
+                    st.session_state["last_generated_pair"] = judged
+                    st.success(f"✅ Generated & stored pair `{judged.pair_id[:8]}` (Verdict: Winner is **Response {judged.chosen.upper()}** by LLM Judge)!")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Generation failed: {ex}")
+
+    with gen_b_col2:
+        if st.button("🏷️ Generate for Human Review (Leave Unlabeled)", key="direct_gen_human_pair_btn", use_container_width=True):
+            with st.spinner("Generating dual-model responses for human review..."):
+                try:
+                    from rlhf.generators.api_vs_api import generate_api_vs_api_pair
+                    from rlhf.storage.json_store import write_pair
+                    from rlhf.config import Category
+                    import asyncio
+
+                    cat_enum = Category(test_p_cat)
+                    cfg_a = {"model_name": "openai/gpt-oss-120b", "temperature": 0.7, "max_tokens": 512}
+                    cfg_b = {"model_name": "llm_simulator_v1", "temperature": 0.0, "max_tokens": 512}
+
+                    new_pair = asyncio.run(
+                        generate_api_vs_api_pair(
+                            prompt=test_p_input,
+                            model_config_a=cfg_a,
+                            model_config_b=cfg_b,
+                            category=cat_enum,
+                        )
+                    )
+                    write_pair(new_pair)
+                    st.session_state["last_generated_pair"] = new_pair
+                    st.success(f"✅ Generated unlabelled pair `{new_pair.pair_id[:8]}`! Scroll down to '🏷️ Human Labelling — Active Review' to label it.")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Generation failed: {ex}")
 
     # Preview latest generated pair
     if "last_generated_pair" in st.session_state and st.session_state["last_generated_pair"]:
