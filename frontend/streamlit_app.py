@@ -140,7 +140,13 @@ def fetch_async_analysis(job_id: str, timeout: float = 3.0):
             if r.status_code == 200:
                 data = r.json()
                 if data.get("status") == "COMPLETED" and data.get("result"):
-                    return data["result"]
+                    res = data["result"]
+                    if isinstance(res, str):
+                        try:
+                            res = json.loads(res)
+                        except Exception:
+                            pass
+                    return res
         except Exception:
             pass
         time.sleep(0.3)
@@ -433,10 +439,17 @@ Every AI request is evaluated through a <strong>7-stage governance pipeline</str
                 if not last_async and last_gov.get("async_job_id"):
                     last_async = fetch_async_analysis(last_gov["async_job_id"], timeout=1.0)
                     st.session_state.last_async_result = last_async
-                if last_async and "analytics" in last_async:
-                    analytics = last_async["analytics"]
+                if isinstance(last_async, str):
+                    try:
+                        last_async = json.loads(last_async)
+                    except Exception:
+                        last_async = None
+                if isinstance(last_async, dict) and "analytics" in last_async:
+                    analytics = last_async.get("analytics") or {}
                     st.success("✅ Deep analysis completed asynchronously")
                     for eng_name, eng_val in analytics.items():
+                        if not isinstance(eng_val, dict):
+                            continue
                         status = eng_val.get("status", "OK")
                         score = eng_val.get("score", 0.0)
                         evidence = eng_val.get("evidence", [])

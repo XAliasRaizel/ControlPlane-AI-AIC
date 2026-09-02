@@ -293,7 +293,13 @@ class Database:
         row = conn.execute("SELECT * FROM async_jobs WHERE job_id=?", (job_id,)).fetchone()
         if not row:
             return None
-        return dict(row)
+        job = dict(row)
+        if job.get("result") is not None and isinstance(job["result"], str):
+            try:
+                job["result"] = json.loads(job["result"])
+            except Exception:
+                pass
+        return job
 
     @_retry_read
     def get_audit(self, request_id: str) -> Dict[str, Any] | None:

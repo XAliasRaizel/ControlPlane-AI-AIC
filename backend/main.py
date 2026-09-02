@@ -504,6 +504,11 @@ async def run_fast_lane(request: GovernanceRequest, async_job_id: str):
         job = db.get_job(async_job_id)
         if job:
             result_data = job.get("result") or {}
+            if isinstance(result_data, str):
+                try:
+                    result_data = json.loads(result_data)
+                except Exception:
+                    result_data = {}
             result_data["fast_lane_results"] = [r.model_dump(mode="json") for r in results]
             status = "FAST_LANE_COMPLETED" if job.get("status") == "QUEUED" else job.get("status")
             db.update_job(async_job_id, status, result_data)
@@ -833,6 +838,11 @@ async def get_job(request: Request, job_id: str, _api_key: str = Depends(verify_
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("result") is not None and isinstance(job["result"], str):
+        try:
+            job["result"] = json.loads(job["result"])
+        except Exception:
+            pass
     return job
 
 
@@ -843,6 +853,11 @@ async def get_async_by_request(request: Request, request_id: str, _api_key: str 
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Async job for request not found")
+    if job.get("result") is not None and isinstance(job["result"], str):
+        try:
+            job["result"] = json.loads(job["result"])
+        except Exception:
+            pass
     return job
 
 
