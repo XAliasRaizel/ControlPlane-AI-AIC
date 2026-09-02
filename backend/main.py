@@ -1043,7 +1043,12 @@ class InspectRequest(BaseModel):
 
 @app.post("/v1/inspect", tags=["inspector"])
 @limiter.limit(f"{settings.rate_limit_default}/minute")
-async def advanced_inspect(request: Request, payload: InspectRequest, _api_key: str = Depends(verify_api_key)):
+async def advanced_inspect(
+    request: Request,
+    payload: InspectRequest,
+    background_tasks: BackgroundTasks,
+    _api_key: str = Depends(verify_api_key),
+):
     """LLM-backed governance inspector for a prompt/response pair.
 
     This endpoint runs on a SEPARATE slow path with its own latency budget.
@@ -1086,6 +1091,16 @@ async def advanced_inspect(request: Request, payload: InspectRequest, _api_key: 
         generation_mode=llm_response.generation_mode,
         citation_check=llm_response.citation_check,
     )
+
+    # Automatically queue prompt for RLHF dual-model generation & human review
+    if payload.prompt:
+        gov_proxy = GovernanceRequest(
+            user_id="inspector",
+            application_id="advanced-inspector",
+            department="GENERAL",
+            prompt=payload.prompt,
+        )
+        background_tasks.add_task(maybe_collect_pair, gov_proxy, payload.response, {})
 
     return {
         "applicable_policy": result.applicable_policy,

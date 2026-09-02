@@ -84,7 +84,7 @@ _MODEL_B_CONFIG = {
 # ---------------------------------------------------------------------------
 
 async def _generate_and_store(prompt, session_id, category):
-    """Generate a preference pair, write it, and schedule LLM judging.
+    """Generate a preference pair, write it, and queue it for human review.
 
     Args:
         prompt: The original governance request prompt.
@@ -92,6 +92,7 @@ async def _generate_and_store(prompt, session_id, category):
         category: rlhf.config.Category enum member.
     """
     import asyncio
+    import os
     from rlhf.generators.api_vs_api import generate_api_vs_api_pair
     from rlhf.storage import json_store
 
@@ -104,8 +105,16 @@ async def _generate_and_store(prompt, session_id, category):
             category=category,
         )
         json_store.write_pair(pair)
-        logger.info("[RLHF/sampler] pair %s written (category=%s)", pair.pair_id, category)
-        await _judge_and_update(pair)
+        logger.info(
+            "[RLHF/sampler] pair %s written (category=%s, source=%s, awaiting human review)",
+            pair.pair_id, category, pair.source_pipeline,
+        )
+
+        # By default, leave pair unlabelled so it directly populates the
+        # "Human Labelling — Active Review" queue for human raters.
+        # Set RLHF_AUTO_JUDGE_BACKGROUND=true only if automated machine labelling is desired.
+        if os.getenv("RLHF_AUTO_JUDGE_BACKGROUND", "false").lower() == "true":
+            await _judge_and_update(pair)
     except Exception as exc:  # noqa: BLE001
         logger.debug("[RLHF/sampler] pair generation skipped: %s", exc)
 
@@ -144,8 +153,9 @@ async def _judge_and_update(pair):
 async def maybe_collect_pair(request, candidate_response, context):
     """Possibly trigger RLHF preference-pair collection for this request.
 
-    Called from /v1/govern as an async BackgroundTask. Rolls a 1-in-N die;
-    if it hits, executes dual-response generation and storage natively.
+    Called from /v1/govern, /v1/chat, and /v1/inspect as an async BackgroundTask.
+    Generates dual-model responses (Groq API vs. Simulator) and queues them
+    into the RLHF human review storage.
 
     All exceptions are silently swallowed -- a bug here must never
     affect the governance request.
@@ -160,9 +170,13 @@ async def maybe_collect_pair(request, candidate_response, context):
         return
 
     try:
+        import os
         from rlhf.config import SAMPLING_RATE_N
-        if random.random() >= 1.0 / max(SAMPLING_RATE_N, 1):
-            return  # Not sampled this turn.
+
+        always_sample = os.getenv("RLHF_SAMPLE_ALL", "true").lower() == "true"
+        if not always_sample and SAMPLING_RATE_N > 1:
+            if random.random() >= 1.0 / SAMPLING_RATE_N:
+                return  # Not sampled this turn.
 
         category = _infer_category(getattr(request, "department", None))
         session_id = getattr(request, "session_id", None)

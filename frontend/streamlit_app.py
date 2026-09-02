@@ -1624,7 +1624,7 @@ with tab_rlhf:
 
     # ── Human Labelling ───────────────────────────────────────────────────────
     st.subheader("🏷️ Human Labelling — Active Review")
-    st.caption("Manually label unlabeled pairs to override or train the reward model.")
+    st.caption("Manually label preference pairs collected live from Governance Chatbot (Tab 1) and Advanced Inspector (Tab 2).")
 
     try:
         from rlhf.storage.json_store import read_all_pairs, update_label
@@ -1633,11 +1633,17 @@ with tab_rlhf:
         unlabeled = [p for p in all_pairs if p.chosen is None]
 
         if not unlabeled:
-            st.info("✅ No unlabeled pairs currently pending. Generate pairs above to build the queue.")
+            st.info("✅ **No unlabeled pairs currently pending.** Any prompt submitted to the **Governance Chatbot (Tab 1)** or **Advanced Inspector (Tab 2)** automatically generates a dual-model pair and queues it here in real-time!")
         else:
             # Show queue summary
-            st.markdown(f"**{len(unlabeled)} pair(s) awaiting human review.** Reviewing most recent:")
-            pair = unlabeled[-1]
+            st.markdown(f"**{len(unlabeled)} pair(s) awaiting human review from Governance & Inspector.**")
+            if len(unlabeled) > 1:
+                p_opts = [f"#{len(unlabeled)-i}: {p.prompt[:60]}..." for i, p in enumerate(reversed(unlabeled))]
+                sel_idx = st.selectbox("Select prompt from active queue:", range(len(p_opts)), format_func=lambda i: p_opts[i], key="rlhf_sel_unlabeled")
+                pair = list(reversed(unlabeled))[sel_idx]
+            else:
+                pair = unlabeled[-1]
+
             st.markdown(f"**Pair ID:** `{pair.pair_id}` · **Category:** `{pair.category}` · **Source:** `{pair.source_pipeline}`")
 
             with st.expander("📝 Prompt", expanded=True):
@@ -1650,25 +1656,25 @@ with tab_rlhf:
                 if pair.response_a.is_error:
                     st.error(f"[ERROR] {pair.response_a.error_message}")
                 else:
-                    st.text_area("", pair.response_a.text, height=120, key="rlhf_resp_a", disabled=True)
+                    st.text_area("", pair.response_a.text, height=120, key=f"rlhf_resp_a_{pair.pair_id}", disabled=True)
             with lab_col2:
                 st.markdown("**Response B**")
                 st.caption(f"Model: `{pair.response_b.model_name}`")
                 if pair.response_b.is_error:
                     st.error(f"[ERROR] {pair.response_b.error_message}")
                 else:
-                    st.text_area("", pair.response_b.text, height=120, key="rlhf_resp_b", disabled=True)
+                    st.text_area("", pair.response_b.text, height=120, key=f"rlhf_resp_b_{pair.pair_id}", disabled=True)
 
             hc1, hc2, hc3 = st.columns(3)
-            if hc1.button("👍 Prefer A", key="rlhf_prefer_a", use_container_width=True):
+            if hc1.button("👍 Prefer A", key=f"rlhf_prefer_a_{pair.pair_id}", use_container_width=True):
                 update_label(pair.pair_id, "a", "human", {"source": "streamlit_ui"})
                 st.success(f"Labeled pair `{pair.pair_id[:8]}…` as Response A preferred.")
                 st.rerun()
-            if hc2.button("👍 Prefer B", key="rlhf_prefer_b", use_container_width=True):
+            if hc2.button("👍 Prefer B", key=f"rlhf_prefer_b_{pair.pair_id}", use_container_width=True):
                 update_label(pair.pair_id, "b", "human", {"source": "streamlit_ui"})
                 st.success(f"Labeled pair `{pair.pair_id[:8]}…` as Response B preferred.")
                 st.rerun()
-            if hc3.button("🤝 Tie / Skip", key="rlhf_tie", use_container_width=True):
+            if hc3.button("🤝 Tie / Skip", key=f"rlhf_tie_{pair.pair_id}", use_container_width=True):
                 update_label(pair.pair_id, "tie", "human", {"source": "streamlit_ui"})
                 st.info(f"Marked pair `{pair.pair_id[:8]}…` as tie.")
                 st.rerun()
