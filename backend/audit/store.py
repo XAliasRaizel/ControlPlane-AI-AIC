@@ -154,9 +154,14 @@ class Database:
                 final_action TEXT,
                 reviewer_id TEXT,
                 notes TEXT,
-                resolved_at TEXT
+                resolved_at TEXT,
+                prompt TEXT
             );
             """)
+            try:
+                conn.execute("ALTER TABLE pending_reviews ADD COLUMN prompt TEXT")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -244,14 +249,14 @@ class Database:
             conn.commit()
 
     @_retry_write
-    def create_review(self, request_id: str, policy_id: str, reason: str, risk: float):
+    def create_review(self, request_id: str, policy_id: str, reason: str, risk: float, prompt: str = ""):
         conn = self.connect()
         with self._write_lock:
             conn.execute(
                 "INSERT OR REPLACE INTO pending_reviews "
-                "(request_id, created_at, policy_id, reason, risk, status) "
-                "VALUES (?, ?, ?, ?, ?, 'PENDING')",
-                (request_id, datetime.now(timezone.utc).isoformat(), policy_id, reason, risk),
+                "(request_id, created_at, policy_id, reason, risk, status, prompt) "
+                "VALUES (?, ?, ?, ?, ?, 'PENDING', ?)",
+                (request_id, datetime.now(timezone.utc).isoformat(), policy_id, reason, risk, prompt),
             )
             conn.commit()
 
@@ -288,10 +293,7 @@ class Database:
         row = conn.execute("SELECT * FROM async_jobs WHERE job_id=?", (job_id,)).fetchone()
         if not row:
             return None
-        job = dict(row)
-        if job["result"] is not None:
-            job["result"] = json.loads(job["result"])
-        return job
+        return dict(row)
 
     @_retry_read
     def get_audit(self, request_id: str) -> Dict[str, Any] | None:
@@ -315,8 +317,11 @@ class Database:
         audits = []
         for row in rows:
             audit = dict(row)
-            for field in ("audit_context", "detector_results", "risk", "policy", "decision_details"):
-                audit[field] = json.loads(audit[field])
+            audit["audit_context"] = json.loads(audit["audit_context"])
+            audit["detector_results"] = json.loads(audit["detector_results"])
+            audit["risk"] = json.loads(audit["risk"])
+            audit["policy"] = json.loads(audit["policy"])
+            audit["decision_details"] = json.loads(audit["decision_details"])
             audits.append(audit)
         return audits
 
@@ -330,10 +335,31 @@ class Database:
     def list_pending_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
         conn = self.connect()
         rows = conn.execute(
-            "SELECT * FROM pending_reviews WHERE status='PENDING' ORDER BY created_at ASC LIMIT ?",
+            "SELECT * FROM pending_reviews WHERE status='PENDING' ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            d = dict(row)
+            if not d.get("prompt"):
+                # Backfill prompt from governance_audits or requests table if available
+                try:
+                    audit = conn.execute("SELECT audit_context FROM governance_audits WHERE request_id=?", (d["request_id"],)).fetchone()
+                    if audit:
+                        ctx = json.loads(audit["audit_context"])
+                        d["prompt"] = ctx.get("prompt", "")
+                except Exception:
+                    pass
+                if not d.get("prompt"):
+                    try:
+                        req = conn.execute("SELECT payload FROM requests WHERE request_id=?", (d["request_id"],)).fetchone()
+                        if req:
+                            p = json.loads(req["payload"])
+                            d["prompt"] = p.get("prompt", "")
+                    except Exception:
+                        pass
+            result.append(d)
+        return result
 
     @_retry_read
     def get_review(self, request_id: str) -> Dict[str, Any] | None:

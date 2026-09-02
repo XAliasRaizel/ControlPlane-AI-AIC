@@ -29,19 +29,18 @@ class ReviewQueue:
             db = Database(settings.db_path)
         self.db = db
 
-    def enqueue(self, decision: GovernanceDecision) -> GovernanceDecision:
-        """Persist a HUMAN_REVIEW decision as pending. Returns it unchanged --
-        the queue's job is to hold the decision, not to make a different one."""
-        if decision.action != "HUMAN_REVIEW":
-            return decision
-
+    def enqueue(self, decision: GovernanceDecision, prompt: str = "") -> GovernanceDecision:
+        """Persist a decision as pending review. Returns it unchanged --
+        the queue holds the decision so human reviewers can inspect, audit,
+        and override decisions in real-time in Tab 5."""
         self.db.create_review(
             request_id=decision.request_id,
-            policy_id=decision.policy_id or "unknown",
-            reason=decision.reason,
-            risk=decision.risk_snapshot.overall_risk,
+            policy_id=decision.policy_id or "default-allow",
+            reason=decision.reason or "Governance evaluation",
+            risk=decision.risk_snapshot.overall_risk if decision.risk_snapshot else 0.0,
+            prompt=prompt,
         )
-        logger.info("HUMAN_REVIEW queued for request %s", decision.request_id)
+        logger.info("Decision queued for Human Review for request %s (action=%s)", decision.request_id, decision.action)
         return decision
 
     def resolve(self, request_id: str, final_action: str, reviewer_id: str, notes: str = "") -> dict:

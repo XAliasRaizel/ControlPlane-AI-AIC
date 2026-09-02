@@ -573,8 +573,8 @@ async def execute_governance(
     # 5. Decision engine (Section 5.6)
     decision = make_decision(request, risk, policy)
 
-    # 6. Human review fallback (Section 5.7)
-    decision = review_queue.enqueue(decision)
+    # 6. Human review queue
+    decision = review_queue.enqueue(decision, prompt=request.prompt or "")
 
     # 7. LLM generation & response sanitization
     # If no candidate response was provided and the decision is ALLOW or MODIFY, generate one!
@@ -1094,6 +1094,7 @@ async def advanced_inspect(
 
     # Automatically queue prompt for RLHF dual-model generation & human review
     if payload.prompt:
+        import uuid
         gov_proxy = GovernanceRequest(
             user_id="inspector",
             application_id="advanced-inspector",
@@ -1101,6 +1102,15 @@ async def advanced_inspect(
             prompt=payload.prompt,
         )
         background_tasks.add_task(maybe_collect_pair, gov_proxy, payload.response, {})
+
+        insp_risk = 1.0 if result.detected_risk == "high" else (0.5 if result.detected_risk == "medium" else 0.0)
+        review_queue.db.create_review(
+            request_id=str(uuid.uuid4()),
+            policy_id=result.applicable_policy or "llm-inspector",
+            reason=result.reason or "LLM Governance Inspection",
+            risk=insp_risk,
+            prompt=payload.prompt,
+        )
 
     return {
         "applicable_policy": result.applicable_policy,

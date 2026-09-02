@@ -1251,9 +1251,9 @@ Governance Request
 
     if not pending:
         st.info(
-            "No pending reviews currently queued.\n\n"
-            "Reviews appear here when the governance engine issues a HUMAN_REVIEW decision. "
-            "Try the Medical Data Request or Unauthorized Salary Query demos in the sidebar."
+            "✅ **No pending reviews currently queued.**\n\n"
+            "Every prompt submitted to **Governance Chatbot (Tab 1)** or **Advanced Inspector (Tab 2)** "
+            "automatically streams directly into this Human Review Queue in real-time."
         )
     else:
         st.markdown(f"**{len(pending)} pending review(s)** waiting for disposition:")
@@ -1278,6 +1278,12 @@ Governance Request
                         st.warning(f"🟡 Risk {risk_val:.2f}")
                     else:
                         st.info(f"🟢 Risk {risk_val:.2f}")
+
+                # Prompt display
+                p_text = item.get("prompt", "")
+                if p_text:
+                    with st.expander("📝 View User Prompt", expanded=True):
+                        st.markdown(f"**Prompt:** {p_text}")
 
                 rc1, rc2, rc3, rc4 = st.columns([1.2, 1.2, 1, 1.8])
                 reviewer = rc1.text_input("Reviewer ID", "reviewer", key=f"rv_{item['request_id']}")
