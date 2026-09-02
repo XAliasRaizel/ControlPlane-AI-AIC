@@ -1,14 +1,16 @@
 # ControlPlane.ai — Enterprise AI Governance Control Plane
 
-> **Accenture Innovation Challenge 2026 · Track 1**  
+> **Accenture Innovation Challenge 2026 · Track 1**
 > *A Production-Grade, Multi-Layered Governance Gateway for Generative AI & Autonomous Agent Systems.*
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.4.0-009688?logo=fastapi&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.x-FF4B4B?logo=streamlit&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-191%20passed%2C%204%20skipped-brightgreen?logo=pytest)
-![License](https://img.shields.io/badge/License-Proprietary-orange)
-![Groq](https://img.shields.io/badge/LLM-Groq%20openai%2Fgpt--oss--120b-f55036?logo=openai&logoColor=white)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.116.1-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.48.1-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Tests](https://img.shields.io/badge/Tests-200%2B%20passing-brightgreen?logo=pytest)](https://pytest.org)
+[![Ruff](https://img.shields.io/badge/Lint-ruff%20clean-006400?logo=python)](https://docs.astral.sh/ruff/)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](.github/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Proprietary-orange)](LICENSE)
+[![LLM](https://img.shields.io/badge/LLM-Groq%20%7C%20openai%2Fgpt--oss--120b-f55036?logo=openai&logoColor=white)](https://console.groq.com)
 
 ---
 
@@ -24,10 +26,11 @@ It is not a model or a prompt. It is an **operating system for AI trust**: a run
 - Tracked across conversation turns by a **dual-signal session risk accumulator** (EWMA + peak-decay)
 - Automatically calibrated via a **self-governing threshold auto-tuner** that learns from reviewer overrides
 - Collected as **RLHF preference pairs** for continuous DPO fine-tuning of governance models
+- Continuously improved via a **production learning flywheel** that captures hot-path vs async disagreements as hard negative training examples
 
 ---
 
-## 📑 Table of Contents
+## Table of Contents
 
 1. [Why ControlPlane.ai? — The Problem](#-why-controlplaneai--the-problem)
 2. [Key Capabilities](#-key-capabilities)
@@ -37,319 +40,408 @@ It is not a model or a prompt. It is an **operating system for AI trust**: a run
 6. [API Reference](#-api-reference)
 7. [Feature Deep Dives](#-feature-deep-dives)
    - [Hot-Path Detector Pipeline](#1-hot-path-detector-pipeline)
-   - [Session Risk Accumulator](#2-session-risk-accumulator)
-   - [Fast-Lane Post-Response Analysis](#3-fast-lane-post-response-analysis)
-   - [Self-Governing Threshold Auto-Tuner](#4-self-governing-threshold-auto-tuner)
-   - [Human Review Queue & Feedback Loop](#5-human-review-queue--feedback-loop)
-   - [Policy RAG & Ask ControlPlane](#6-policy-rag--ask-controlplane)
-   - [LLM-Powered Advanced Inspector](#7-llm-powered-advanced-inspector)
-   - [Agentic Tool-Call Governance](#8-agentic-tool-call-governance)
-   - [RLHF / DPO Preference Data Pipeline](#9-rlhf--dpo-preference-data-pipeline)
-   - [Tamper-Evident Merkle Audit Ledger](#10-tamper-evident-merkle-audit-ledger)
-   - [Two-Layer Hallucination & Grounding Detection](#11-two-layer-hallucination--grounding-detection)
-   - [Two-Layer Bias & Fairness Detection](#12-two-layer-bias--fairness-detection)
-   - [Unified Sensitive Data Protection](#13-unified-sensitive-data-protection)
+   - [Context-Aware RBAC (Two-Layer Permission Resolution)](#2-context-aware-rbac-two-layer-permission-resolution)
+   - [Session Risk Accumulator](#3-session-risk-accumulator)
+   - [Fast-Lane Post-Response Analysis](#4-fast-lane-post-response-analysis)
+   - [Self-Governing Threshold Auto-Tuner](#5-self-governing-threshold-auto-tuner)
+   - [Human Review Queue & Feedback Loop](#6-human-review-queue--feedback-loop)
+   - [Policy RAG & Ask ControlPlane](#7-policy-rag--ask-controlplane)
+   - [LLM-Powered Advanced Inspector](#8-llm-powered-advanced-inspector)
+   - [Agentic Tool-Call Governance](#9-agentic-tool-call-governance)
+   - [RLHF / DPO Preference Data Pipeline](#10-rlhf--dpo-preference-data-pipeline)
+   - [Continuous Learning Flywheel](#11-continuous-learning-flywheel)
+   - [Detector Training Pipeline (ML Scripts)](#12-detector-training-pipeline-ml-scripts)
+   - [Tamper-Evident Merkle Audit Ledger](#13-tamper-evident-merkle-audit-ledger)
+   - [Two-Layer Hallucination & Grounding Detection](#14-two-layer-hallucination--grounding-detection)
+   - [Two-Layer Bias & Fairness Detection](#15-two-layer-bias--fairness-detection)
+   - [Unified Sensitive Data Protection](#16-unified-sensitive-data-protection)
 8. [Streamlit Dashboard — 7 Tabs](#-streamlit-dashboard--7-tabs)
 9. [Testing & Evaluation Harness](#-testing--evaluation-harness)
 10. [Runnable Demonstrations](#-runnable-demonstrations)
-11. [Research Grounding & Standards Compliance](#-research-grounding--standards-compliance)
-12. [Environment Variables](#-environment-variables)
+11. [Deployment](#-deployment)
+12. [Research Grounding & Standards Compliance](#-research-grounding--standards-compliance)
+13. [Environment Variables](#-environment-variables)
+14. [CI/CD Pipeline](#-cicd-pipeline)
 
 ---
 
-## 🎯 Why ControlPlane.ai? — The Problem
+## Why ControlPlane.ai? — The Problem
 
 Modern enterprises are deploying generative AI at scale — in HR copilots, finance chatbots, customer support agents, and internal knowledge assistants. Each deployment carries significant risk:
 
-| Risk | Example | What Happens Without Governance |
+| Risk | Example | Without Governance |
 |---|---|---|
 | **PII Leakage** | Finance chatbot returns salary data to a contractor | GDPR breach, regulatory fines |
 | **Prompt Injection** | Attacker overrides system prompt via user input | Data exfiltration, policy bypass |
-| **Authorization Bypass** | Intern queries restricted executive compensation data | Insider threat, compliance failure |
+| **Authorization Bypass** | Intern queries executive compensation data | Insider threat, compliance failure |
 | **Hallucination** | LLM states incorrect regulatory facts in a patient context | Legal liability, patient harm |
 | **Bias** | Loan decision cites applicant's ethnicity as a reason | ECOA/Title VII violation, reputational risk |
-| **Session Evasion** | Attacker behaves well for 5 turns, then exfiltrates on turn 6 | Undetected multi-turn attack |
+| **Session Evasion** | Attacker behaves well for 5 turns, exfiltrates on turn 6 | Undetected multi-turn attack |
 | **Agentic Overreach** | Autonomous agent deletes customer records without authorization | Irreversible damage, audit failure |
 
 **ControlPlane.ai** addresses all of these with a single, unified governance gateway that enforces policy on every AI interaction — before any content reaches users.
 
 ---
 
-## 🌟 Key Capabilities
+## Key Capabilities
 
 | Layer / Feature | Description | Primary Location |
 |---|---|---|
-| **Hot-Path Gateway** | FastAPI ingress: API key auth, prompt-length guard, UUID-stamped request lifecycle, sub-50ms budget | `backend/gateway/`, `backend/main.py` |
-| **7 Parallel Detectors** | PII, Injection, Authorization, Safety, Hallucination, Bias, Sensitive-Query-Intent run concurrently via `asyncio.gather` | `backend/detectors/` |
-| **Noisy-OR Risk Engine** | Bayesian evidence fusion — prevents dilution of high-severity signals by low-severity ones | `backend/risk/engine.py` |
-| **Session Risk Accumulator** | Dual-signal cross-turn memory (EWMA + peak-decay) with entity-reconstruction detection, tool contamination tracking, Redis support | `backend/risk/accumulator.py` |
+| **Hot-Path Gateway** | FastAPI ingress: API key auth, rate limiting, prompt-length guard, UUID-stamped lifecycle, SecurityHeaders | `backend/gateway/`, `backend/main.py` |
+| **7 Parallel Detectors** | PII, Injection, Authorization, Safety, Hallucination, Bias, Sensitive-Query-Intent via `asyncio.gather` | `backend/detectors/` |
+| **Noisy-OR Risk Engine** | Bayesian evidence fusion — prevents dilution of high-severity signals | `backend/risk/engine.py` |
+| **Two-Layer RBAC** | Role-based + department-specific permission grants merged with OR logic | `backend/gateway/context_enrichment.py` |
+| **Session Risk Accumulator** | Dual-signal cross-turn memory (EWMA + peak-decay), entity reconstruction, Redis support | `backend/risk/accumulator.py` |
 | **Five Governance Decisions** | `ALLOW`, `MODIFY` (regex PII redaction), `REROUTE`, `HUMAN_REVIEW`, `BLOCK` | `backend/decision/engine.py` |
 | **Hierarchical Policy Engine** | Multi-file YAML rules with Application > Department > Global precedence, hot-reloading | `backend/policy/` |
-| **Self-Governing Auto-Tuner** | Learns from reviewer overrides — automatically raises detector thresholds (NUDGE) or escalates for human redesign (ESCALATE). Every decision is auditable. | `backend/feedback/feedback_engine.py` |
-| **Human Review Queue** | SQLite-backed queue for HUMAN_REVIEW decisions; resolver propagates override data to the auto-tuner | `backend/review/queue.py` |
-| **Fast-Lane Post-Response** | Background async detectors (250ms timeout) fire after response is returned; high-risk findings push a webhook RETRACT signal | `backend/main.py` |
-| **Policy RAG Explainer** | Bounded (<40ms) semantic retrieval over GDPR, EU AI Act, HIPAA, and internal policies — annotates every decision with regulatory citations | `rag/policy/policy_rag.py` |
-| **Ask ControlPlane** | Compliance Q&A assistant with hybrid retrieval over policy corpus and audit logs, powered by Groq | `rag/ask_controlplane/` |
+| **Self-Governing Auto-Tuner** | Override-rate-driven threshold nudging — applies same governance principle to itself | `backend/feedback/feedback_engine.py` |
+| **Human Review Queue** | SQLite-backed queue; resolver propagates gold-label data to training flywheel | `backend/review/queue.py` |
+| **Fast-Lane Post-Response** | Background async detectors (250ms timeout); high-risk trigger webhook RETRACT | `backend/main.py` |
+| **Policy RAG Explainer** | Bounded (<40ms) semantic retrieval over GDPR, EU AI Act, HIPAA, internal policies | `rag/policy/policy_rag.py` |
+| **Ask ControlPlane** | Compliance Q&A with hybrid retrieval + Groq citation synthesis | `rag/ask_controlplane/` |
 | **Advanced Inspector** | Slow-path LLM-backed governance inspector (`POST /v1/inspect`) with injection-hardening | `backend/app/llm/` |
-| **Agentic Tool Governance** | `ToolGovernor` intercepts agent tool calls before execution; scores risk, applies YAML policies, respects session risk carryover | `backend/agents/` |
-| **RLHF / DPO Pipeline** | Automatic 1-in-N preference pair collection, LLM-judge labelling, DPO JSONL export, LoRA training stubs | `rlhf/` |
-| **Merkle Audit Ledger** | SHA-256 hash chain + RFC 6962 Merkle tree checkpoints anchored to an external HMAC anchor file; detects naive and rechaining attacks | `backend/audit_integrity/` |
-| **Two-Layer Hallucination** | Hot-path claim gate (<0.5ms) + async deep NLI grounding (DeBERTa + SelfCheckGPT) | `backend/detectors/hallucination.py`, `backend/async_engines/grounding.py` |
-| **Two-Layer Bias & Fairness** | Hot-path ECOA/Title-VII causal tripwire + async counterfactual flip-rate + LLM bias rubric | `backend/detectors/bias.py`, `backend/async_engines/fairness.py` |
-| **Rich Metrics Dashboard** | Plotly charts: decision distribution, risk histogram, latency trend, risk trend, detector fire rates, blocked-by-policy breakdown | `backend/audit/store.py`, `GET /v1/metrics/rich` |
+| **Agentic Tool Governance** | `ToolGovernor` intercepts agent tool calls before execution | `backend/agents/` |
+| **RLHF / DPO Pipeline** | 1-in-N preference pair collection, LLM-judge labelling, DPO JSONL export, LoRA training | `rlhf/` |
+| **Continuous Learning Flywheel** | Captures hot vs async disagreements (delta > 0.2) as training signals; gold labels from human review | `backend/async_pipeline/training_signal_collector.py` |
+| **Detector Training Pipeline** | Production-grade ML scripts for SFT fine-tuning and threshold recalibration | `ml/scripts/` |
+| **Merkle Audit Ledger** | SHA-256 hash chain + RFC 6962 Merkle checkpoints; detects naive and rechaining attacks | `backend/audit_integrity/` |
+| **Two-Layer Hallucination** | Hot-path claim gate (<0.5ms) + async DeBERTa NLI + SelfCheckGPT | `backend/detectors/hallucination.py`, `backend/async_engines/grounding.py` |
+| **Two-Layer Bias & Fairness** | Hot-path ECOA/Title-VII tripwire + async counterfactual flip-rate + LLM rubric | `backend/detectors/bias.py`, `backend/async_engines/fairness.py` |
+| **Prometheus Metrics** | `controlplane_govern_requests_total`, `latency_seconds`, and more; Plotly dashboard | `backend/shared/metrics.py` |
+| **OpenTelemetry Tracing** | Distributed traces via OTLP; zero-overhead when endpoint unset | `backend/shared/tracing.py` |
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 ```
 AI Applications (chatbots, RAG pipelines, agents, copilots)
-        │  prompt / candidate response / proposed tool-call
-        ▼
+        |  prompt / candidate response / proposed tool-call
+        v
 ============================== CONTROLPLANE.AI ==============================
 
-  [1] GATEWAY (FastAPI + API Key Auth)
-      auth · prompt-length guard · UUID request_id · timestamp
-        │
-        ▼
-  [2] CONTEXT ENRICHMENT
-      user role · department · app criticality · data classification · RBAC
-        │
-        ▼
+  [1] GATEWAY (FastAPI + API Key Auth + Rate Limiting)
+      auth . prompt-length guard . UUID request_id . SecurityHeaders
+        |
+        v
+  [2] CONTEXT ENRICHMENT  (Two-Layer RBAC)
+      role permissions --OR-- department permission grants
+      -> can_access_salary, can_view_medical_records, can_access_banking...
+        |
+        v
   [3] HOT-PATH DETECTORS  (asyncio.gather, <50ms budget)
-      ┌─ PII & Sensitive Terms (6 categories + fail-cautious safety net)
-      ├─ Prompt Injection & Jailbreak (DAN, instruction overrides)
-      ├─ Authorization & RBAC (role entitlements vs. resource sensitivity)
-      ├─ Safety & Harmful Content (violence, hacking, exploits)
-      ├─ Hallucination Fast Gate (claim-level cross-reference, <0.5ms)
-      ├─ Bias Fast Gate (protected-attribute causal tripwire)
-      └─ Sensitive Query Intent (detail-seeking language heuristic)
-        │
-        ▼
+      +- PII & Sensitive Terms (6 categories + fail-cautious safety net)
+      +- Prompt Injection & Jailbreak (DAN, instruction overrides, extraction)
+      +- Authorization & RBAC (role entitlements vs. resource sensitivity)
+      +- Safety & Harmful Content (violence, hacking, exploits)
+      +- Hallucination Fast Gate (claim-level cross-reference, <0.5ms)
+      +- Bias Fast Gate (protected-attribute causal tripwire)
+      +- Sensitive Query Intent (detail-seeking language heuristic)
+        |
+        v
   [4] RISK ENGINE  (Noisy-OR Evidence Fusion)
-      P(risk) = 1 − ∏(1 − pᵢ) + context multiplier
-      + session_risk injection (EWMA / peak-decay if accumulator enabled)
-        │
-        ▼
-  [5] POLICY ENGINE & POLICY RAG
+      P(risk) = 1 - prod(1 - p_i) + context amplifier (1.35x for critical apps)
+      + session_risk injection (EWMA / peak-decay when accumulator enabled)
+        |
+        v
+  [5] POLICY ENGINE & POLICY RAG  (parallel)
       YAML rules: Application > Department > Global precedence
-      └─► Policy RAG retrieves regulatory citations in parallel (~2ms warm)
-        │
-        ▼
+      +-> Policy RAG retrieves regulatory citations (~2ms warm)
+        |
+        v
   [6] DECISION ENGINE & SANITIZATION
-      ALLOW · MODIFY (regex redaction) · REROUTE · BLOCK · HUMAN_REVIEW ──┐
-        │                                                                  │
-        │  fire-and-forget background                                      ▼
-        │                                                     [7] HUMAN REVIEW QUEUE
-        │                                                         approve / reject / modify
-        │                                                                  │
-        │                                                         Override data feeds
-        │                                                                  │
-        │                                                                  ▼
-        │                                                  [8] SELF-GOVERNING AUTO-TUNER
-        │                                                      NUDGE / ESCALATE / HOLD
-        │                                                      → YAML threshold patches
-        │◄─────────────────────────────────────────────────────────────────┘
-        ▼
+      ALLOW . MODIFY (regex redaction) . REROUTE . BLOCK . HUMAN_REVIEW ---+
+        |                                                                   |
+        |  fire-and-forget background                                       v
+        |                                                      [7] HUMAN REVIEW QUEUE
+        |                                                          approve / reject / modify
+        |                                                          -> gold-label training signal
+        |                                                                   |
+        |                                                                   v
+        |                                                   [8] SELF-GOVERNING AUTO-TUNER
+        |                                                       NUDGE / ESCALATE / HOLD
+        |                                                       -> YAML threshold patches
+        |<------------------------------------------------------------------+
+        v
   Sanitized response returned to application (+ policy_evidence annotation)
-        │
-        ├── background: RLHF pair sampling (1-in-N)
-        ├── background: fast-lane async detectors (250ms, webhook RETRACT)
-        └── background: deep async analytics pipeline
-              ├─ Grounding RAG & Deep NLI Engine (DeBERTa + SelfCheckGPT)
-              ├─ Deep Fairness Engine (Counterfactual probe + LLM judge)
-              └─ Performance, Cost, Privacy, Safety, Business engines
+        |
+        +-- background: RLHF pair sampling (1-in-N)
+        +-- background: fast-lane async detectors (250ms, webhook RETRACT)
+        +-- background: deep async analytics pipeline
+              +- Grounding RAG & Deep NLI Engine (DeBERTa + SelfCheckGPT)
+              +- Deep Fairness Engine (Counterfactual probe + LLM judge)
+              +- Performance, Cost, Privacy, Safety, Business engines
+              +-> Training Signal Collector
+                    captures hot vs async disagreements (delta > 0.2)
+                    -> rlhf/data/detector_training/raw_signals_<DATE>.jsonl
 
   [9] TAMPER-EVIDENT AUDIT LEDGER
-      HMAC-hashed audit context · SHA-256 hash chain · Merkle checkpoints
+      HMAC-hashed audit context . SHA-256 hash chain . Merkle checkpoints
 
   [10] SESSION ACCUMULATOR (cross-turn, opt-in)
-       EWMA score + peak-with-decay → session_risk, session_band (1/2/3)
+       EWMA score + peak-with-decay -> session_risk, session_band (1/2/3)
        PII entity-reconstruction detection across rolling fragment window
        Tool-chain contamination tracking (sticky per session TTL)
        Backends: InMemorySessionStore (default) | Redis (multi-worker)
 
   [11] RLHF / DPO PIPELINE (background, non-blocking)
-       Category-validated preference pairs → LLM judge labelling
-       → DPO JSONL export → LoRA fine-tuning (training/ stubs)
+       Category-validated preference pairs -> LLM judge labelling
+       -> DPO JSONL export -> LoRA fine-tuning (rlhf/training/ stubs)
+
+  [12] CONTINUOUS LEARNING FLYWHEEL
+       Hot path disagreements -> training data -> SFT fine-tune -> recalibrate
+       Human review resolutions -> gold labels -> highest priority training data
+       Runs every 6 hours via recalibrate_thresholds.py (online, no downtime)
 
 ===========================================================================
 
-  [12] AGENTIC GOVERNANCE (/agent/act)
-       Agent proposes tool call → ToolGovernor intercepts → Risk + Policy
-       → ALLOW (executes) | HUMAN_REVIEW (held) | BLOCK (aborts)
+  [13] AGENTIC GOVERNANCE (/agent/act)
+       Agent proposes tool call -> ToolGovernor intercepts -> Risk + Policy
+       -> ALLOW (executes) | HUMAN_REVIEW (held) | BLOCK (aborts)
 ```
 
 ---
 
-## 📁 Repository Layout
+## Repository Layout
 
 ```
 controlplane-ai/
-├── Dockerfile                           # Production container spec
-├── docker-compose.yml                   # Multi-service stack (gateway + UI)
-├── requirements.txt                     # Core runtime dependencies
-├── start.ps1                            # PowerShell one-shot launcher
-│
-├── backend/
-│   ├── main.py                          # FastAPI entrypoint — all routes, lifespan hooks
-│   ├── shared/
-│   │   ├── schemas.py                   # Canonical Pydantic v2 contracts (single source of truth)
-│   │   ├── sensitive_terms.py           # Unified taxonomy: financial, IDs, HR, medical, auth
-│   │   ├── config.py                    # .env loader + Settings dataclass
-│   │   ├── model_backend.py             # Lazy model loader (CONTROLPLANE_MODEL_<TASK>)
-│   │   ├── gpu_adapter.py               # Hardware inference interface
-│   │   └── llm_simulator.py             # Synthetic LLM response generator (dev/test)
-│   ├── gateway/
-│   │   ├── auth.py                      # API key authentication dependency
-│   │   └── context_enrichment.py        # RBAC and sensitivity resolver
-│   ├── detectors/
-│   │   ├── base.py                      # BaseDetector ABC + self-registration DETECTOR_REGISTRY
-│   │   ├── pii.py                       # Sensitive term & regex value scanner (+ Presidio opt-in)
-│   │   ├── injection.py                 # Jailbreak & instruction-override scanner
-│   │   ├── authorization.py             # Deterministic RBAC access check
-│   │   ├── safety.py                    # Harmful content & exploit scanner
-│   │   ├── hallucination.py             # Hot-path ungrounded-claim gate
-│   │   ├── bias.py                      # Hot-path protected-attribute causal detector
-│   │   ├── sensitive_query_intent.py    # Detail-seeking language heuristic
-│   │   └── async_analytics.py           # 7 background analytics engine detectors
-│   ├── async_engines/
-│   │   ├── grounding.py                 # Deep NLI entailment + LLM-judge + SelfCheckGPT
-│   │   └── fairness.py                  # Counterfactual probe + LLM bias rubric
-│   ├── app/
-│   │   └── llm/
-│   │       ├── client.py                # Groq-backed LLM client (injection-hardened evidence)
-│   │       └── prompts.py               # Inspector system prompt + result parser
-│   ├── utils/
-│   │   ├── claims.py                    # Lightweight claim decomposition utility
-│   │   └── llm_judge.py                 # Provider-agnostic AI-as-judge (OpenAI/Anthropic/Mock)
-│   ├── risk/
-│   │   ├── engine.py                    # Noisy-OR Bayesian risk fusion & session injection
-│   │   ├── accumulator.py               # Dual-signal EWMA+peak accumulator & entity reconstruction
-│   │   └── session_store.py             # InMemorySessionStore + Redis SessionStore protocol
-│   ├── policy/
-│   │   ├── engine.py                    # Multi-scope hierarchical policy evaluator
-│   │   └── loader.py                    # Hot-reloading YAML policy loader & validator
-│   ├── decision/
-│   │   └── engine.py                    # Decision resolution & pattern-based PII redaction
-│   ├── review/
-│   │   └── queue.py                     # SQLite human review queue (enqueue / resolve)
-│   ├── async_pipeline/
-│   │   ├── publisher.py                 # Fire-and-forget async dispatcher
-│   │   ├── worker.py                    # Background job executor
-│   │   └── consumers.py                 # Analytics orchestrator
-│   ├── agents/
-│   │   ├── models.py                    # ToolCallContext, GovernanceDecision dataclasses
-│   │   ├── tools.py                     # Tool execution layer & registry
-│   │   ├── risk.py                      # Tool-call risk scoring
-│   │   ├── policy.py                    # YAML-driven agent policy evaluator
-│   │   ├── queue.py                     # Pending action human review queue
-│   │   ├── governance.py                # ToolGovernor: intercept → score → decide → execute
-│   │   └── router.py                    # FastAPI routes (/agent/act, /agent/pending)
-│   ├── audit/
-│   │   └── store.py                     # SQLite audit DB, privacy-safe HMAC store, richer_metrics()
-│   ├── audit_integrity/
-│   │   ├── models.py                    # AuditRecord, Checkpoint, VerificationResult
-│   │   ├── hashing.py                   # Canonical JSON + SHA-256 + HMAC utilities
-│   │   ├── merkle.py                    # RFC 6962 Merkle tree with inclusion proofs
-│   │   ├── backends.py                  # SQLite record store & append-only anchor file
-│   │   ├── ledger.py                    # TamperEvidentAuditLedger (append + seal)
-│   │   └── verifier.py                  # Independent chain & checkpoint verifier
-│   └── feedback/
-│       ├── evaluator.py                 # FPR/FNR labelled error evaluator — classifies overrides
-│       └── feedback_engine.py           # Self-Governing Threshold Auto-Tuner (NUDGE/ESCALATE/HOLD)
-│
-├── rag/
-│   ├── config.py                        # RAG settings & latency budgets
-│   ├── schemas.py                       # Chunk, Query, Document, RetrievalResult
-│   ├── embeddings.py                    # Local TF-IDF/LSA + Sentence-Transformers embedder
-│   ├── vector_store.py                  # ChromaDB + zero-dependency NumPy/JSON fallback store
-│   ├── chunking.py                      # Paragraph-aware text chunking
-│   ├── retriever.py                     # Hybrid vector + lexical retriever
-│   ├── evaluation.py                    # End-to-end RAG evaluation harness (12 cases)
-│   ├── corpus/
-│   │   ├── regulatory/                  # GDPR, EU AI Act, HIPAA knowledge bases
-│   │   └── internal_kb/                 # Leave, IT security, expense, company policies
-│   ├── ingestion/
-│   │   ├── ingest.py                    # Corpus ingestion & index builder
-│   │   ├── document_loader.py           # Text & Markdown loader
-│   │   ├── policy_loader.py             # YAML policy → prose converter
-│   │   └── audit_loader.py              # Privacy-safe audit record indexer
-│   ├── policy/
-│   │   └── policy_rag.py                # Hot-path Policy RAG explainer (~2ms warm)
-│   ├── grounding/
-│   │   ├── claim_extractor.py           # Sentence-level checkable claim extractor
-│   │   ├── entailment.py                # Lexical & number-penalty entailment checker
-│   │   └── grounding_checker.py         # Grounding verification orchestrator
-│   └── ask_controlplane/
-│       ├── retrieval.py                 # Hybrid policy + audit retrieval
-│       ├── chat.py                      # Q&A synthesizer with citations
-│       └── llm_client.py               # Groq LLM client with graceful fallback
-│
-├── rlhf/
-│   ├── config.py                        # Category enum, storage selector, sampling rate
-│   ├── schema.py                        # PreferencePair Pydantic model
-│   ├── sampler.py                       # maybe_collect_pair — 1-in-N fire-and-forget hook
-│   ├── generators/                      # Dual-model response generation (API + local)
-│   ├── judges/                          # LLM-as-Judge (position-bias controlled) + human CLI
-│   ├── storage/                         # Active: JSONL append-only; ready: SQLite drop-in
-│   ├── export/                          # DPO JSONL export with label filtering
-│   └── training/                        # DPO fine-tuning + LoRA evaluation (TRL/PEFT stubs)
-│
-├── ml/
-│   ├── calibration.example.json         # Example calibration file for session accumulator
-│   ├── common/                          # Shared LoRA utilities
-│   ├── grounding/                       # NLI model training & download scripts
-│   ├── fairness/                        # Counterfactual fairness model training
-│   ├── prompt_injection/                # Injection classifier training pipeline
-│   ├── safety/                          # Safety classifier training pipeline
-│   └── notebooks/                       # Orchestrated training notebooks
-│
-├── policies/
-│   ├── global.yaml                      # Universal fallthrough governance rules
-│   ├── hr.yaml                          # HR-scoped policy (PII & authorization)
-│   ├── finance.yaml                     # Finance-scoped policy (loan decisions, PII redaction)
-│   ├── support.yaml                     # Support bot policy (injection & redaction)
-│   ├── agent_tools.yaml                 # 7 rules governing tool calls (refunds, email, delete)
-│   └── hallucination_bias_rules.yaml    # Hallucination and bias threshold rules
-│
-├── frontend/
-│   └── streamlit_app.py                 # Interactive Streamlit UI — 7 tabs, ~1650 lines
-│
-├── scripts/
-│   ├── run_golden_path.py               # HR golden-path end-to-end demo
-│   ├── run_agent_governance_demo.py     # 8-scenario agent tool-call demo
-│   └── run_audit_integrity_demo.py      # 3-act tamper-evident ledger demo
-│
-└── tests/                               # 19 test modules, 191 tests
-    ├── test_golden_path.py
-    ├── test_governance.py
-    ├── test_gateway_api.py
-    ├── test_policy_engine.py
-    ├── test_async_service.py
-    ├── test_agent_governance.py
-    ├── test_audit_integrity.py
-    ├── test_hallucination_bias.py
-    ├── test_sensitive_data_coverage.py
-    ├── test_rag.py
-    ├── test_session_accumulator.py
-    ├── test_model_backend.py
-    ├── test_fast_lane.py
-    ├── test_rlhf_integration.py
-    ├── test_groq_llm_client.py
-    ├── test_llm_client.py
-    ├── test_ml_pipeline.py
-    ├── test_paraphrase_consistency.py
-    └── test_accumulator_calibration_integrity.py
+|-- Dockerfile                           # Multi-stage production container (non-root user)
+|-- docker-compose.yml                   # Two-service stack: API + Streamlit UI
+|-- requirements.txt                     # Core runtime dependencies
+|-- pyproject.toml                       # pytest config + ruff lint rules
+|-- start.ps1                            # PowerShell one-shot dev launcher
+|
+|-- backend/
+|   |-- main.py                          # FastAPI entrypoint (40+ routes, lifespan hooks, async task queue)
+|   |-- shared/
+|   |   |-- schemas.py                   # Canonical Pydantic v2 contracts (single source of truth)
+|   |   |-- sensitive_terms.py           # Unified taxonomy: financial, IDs, HR, medical, auth
+|   |   |-- config.py                    # .env loader + Settings dataclass
+|   |   |-- model_backend.py             # Lazy model loader (CONTROLPLANE_MODEL_<TASK>)
+|   |   |-- circuit_breaker.py           # Thread-safe CircuitBreaker (CLOSED/OPEN/HALF_OPEN)
+|   |   |-- db_pool.py                   # Thread-local SQLite pool (WAL mode)
+|   |   |-- gpu_adapter.py               # Hardware inference interface
+|   |   |-- llm_simulator.py             # Synthetic LLM response generator (dev/test)
+|   |   |-- logging_config.py            # Structured JSON logging + request_id/trace_id context
+|   |   |-- metrics.py                   # Prometheus counters and histograms
+|   |   +-- tracing.py                   # OpenTelemetry OTLP tracing configuration
+|   |-- gateway/
+|   |   |-- auth.py                      # API key authentication dependency
+|   |   +-- context_enrichment.py        # Two-layer RBAC: role perms + department grants (OR logic)
+|   |-- detectors/
+|   |   |-- base.py                      # BaseDetector ABC + self-registration DETECTOR_REGISTRY
+|   |   |-- pii.py                       # Sensitive term & regex value scanner (+ Presidio opt-in)
+|   |   |-- injection.py                 # Jailbreak & instruction-override scanner
+|   |   |-- authorization.py             # Deterministic RBAC access check
+|   |   |-- safety.py                    # Harmful content & exploit scanner
+|   |   |-- hallucination.py             # Hot-path ungrounded-claim gate (<0.5ms)
+|   |   |-- bias.py                      # Hot-path protected-attribute causal detector
+|   |   |-- sensitive_query_intent.py    # Detail-seeking language heuristic
+|   |   +-- async_analytics.py           # 7 background analytics engine detectors
+|   |-- async_engines/
+|   |   |-- grounding.py                 # Deep NLI entailment + LLM-judge + SelfCheckGPT
+|   |   +-- fairness.py                  # Counterfactual probe + LLM bias rubric
+|   |-- app/
+|   |   +-- llm/
+|   |       |-- client.py                # Groq-backed LLM client (injection-hardened evidence)
+|   |       |-- prompt_registry.py       # Semver-versioned prompt template registry
+|   |       |-- prompts.py               # Inspector system prompt + result parser
+|   |       |-- schemas.py               # LLM request/response schemas
+|   |       +-- token_budget.py          # tiktoken-based cost budget enforcement
+|   |-- utils/
+|   |   |-- claims.py                    # Lightweight claim decomposition utility
+|   |   +-- llm_judge.py                 # Provider-agnostic AI-as-judge (Groq/OpenAI/Anthropic/Mock)
+|   |-- risk/
+|   |   |-- engine.py                    # Noisy-OR Bayesian risk fusion & session injection
+|   |   |-- accumulator.py               # Dual-signal EWMA+peak accumulator & entity reconstruction
+|   |   +-- session_store.py             # InMemorySessionStore + Redis SessionStore protocol
+|   |-- policy/
+|   |   |-- engine.py                    # Multi-scope hierarchical policy evaluator
+|   |   +-- loader.py                    # Hot-reloading YAML policy loader & validator
+|   |-- decision/
+|   |   +-- engine.py                    # Decision resolution & pattern-based PII redaction
+|   |-- review/
+|   |   +-- queue.py                     # SQLite human review queue (enqueue / resolve + gold labels)
+|   |-- async_pipeline/
+|   |   |-- publisher.py                 # Fire-and-forget dispatcher with dead-letter SQLite store
+|   |   |-- worker.py                    # Background job executor with smart sampling gate
+|   |   |-- consumers.py                 # Analytics orchestrator (runs async-only detectors)
+|   |   +-- training_signal_collector.py # Continuous learning: captures hot vs async disagreements
+|   |-- agents/
+|   |   |-- models.py                    # ToolCallContext, GovernanceDecision, PendingToolCall
+|   |   |-- tools.py                     # Tool execution registry (send_email, issue_refund, delete_record)
+|   |   |-- risk.py                      # Tool-call risk scoring (sensitivity + magnitude + reversibility)
+|   |   |-- policy.py                    # YAML-driven agent policy evaluator (restricted _safe_eval)
+|   |   |-- queue.py                     # In-memory pending tool-call review queue
+|   |   |-- governance.py                # ToolGovernor: intercept -> score -> decide -> execute
+|   |   +-- router.py                    # FastAPI routes (/agent/act, /agent/pending)
+|   |-- audit/
+|   |   +-- store.py                     # SQLite audit DB, HMAC privacy fingerprinting, richer_metrics()
+|   |-- audit_integrity/
+|   |   |-- models.py                    # AuditRecord, Checkpoint, VerificationResult
+|   |   |-- hashing.py                   # Canonical JSON + SHA-256 + HMAC utilities
+|   |   |-- merkle.py                    # RFC 6962 Merkle tree with inclusion proofs
+|   |   |-- backends.py                  # SQLite record store & append-only anchor file
+|   |   |-- ledger.py                    # TamperEvidentAuditLedger (append + seal)
+|   |   +-- verifier.py                  # Independent chain & checkpoint verifier
+|   +-- feedback/
+|       |-- evaluator.py                 # FPR/FNR labelled error evaluator & RLHF pair generator
+|       +-- feedback_engine.py           # Self-Governing Threshold Auto-Tuner (NUDGE/ESCALATE/HOLD)
+|
+|-- rag/
+|   |-- config.py                        # RAG settings & latency budgets
+|   |-- schemas.py                       # Chunk, Query, Document, RetrievalResult
+|   |-- embeddings.py                    # Local TF-IDF/LSA + Sentence-Transformers embedder
+|   |-- vector_store.py                  # ChromaDB + zero-dependency NumPy/JSON fallback
+|   |-- chunking.py                      # Paragraph-aware text chunking
+|   |-- retriever.py                     # Hybrid vector + lexical (BM25) retriever
+|   |-- evaluation.py                    # End-to-end RAG evaluation harness (12 cases)
+|   |-- tenant.py                        # Multi-tenant RAG corpus isolation
+|   |-- corpus/
+|   |   |-- regulatory/                  # GDPR, EU AI Act, HIPAA knowledge bases
+|   |   +-- internal_kb/                 # Leave, IT security, expense, company policies
+|   |-- ingestion/
+|   |   |-- ingest.py                    # Corpus ingestion & index builder
+|   |   |-- document_loader.py           # Text & Markdown loader
+|   |   |-- policy_loader.py             # YAML policy -> prose converter
+|   |   +-- audit_loader.py              # Privacy-safe audit record indexer
+|   |-- policy/
+|   |   +-- policy_rag.py                # Hot-path Policy RAG explainer (~2ms warm)
+|   |-- grounding/
+|   |   |-- claim_extractor.py           # Sentence-level checkable claim extractor
+|   |   |-- entailment.py                # Lexical & number-penalty entailment checker
+|   |   +-- grounding_checker.py         # Grounding verification orchestrator
+|   +-- ask_controlplane/
+|       |-- retrieval.py                 # Hybrid policy + audit retrieval
+|       |-- chat.py                      # Q&A synthesizer with citation verification
+|       +-- llm_client.py                # Groq LLM client with graceful fallback
+|
+|-- rlhf/
+|   |-- config.py                        # Category enum, storage selector, sampling rate, daily caps
+|   |-- schema.py                        # PreferencePair Pydantic model
+|   |-- sampler.py                       # maybe_collect_pair -- 1-in-N fire-and-forget hook
+|   |-- generators/
+|   |   |-- api_vs_api.py                # Dual Groq API model generation
+|   |   +-- local_vs_local.py            # Local model pair generation
+|   |-- judges/
+|   |   |-- llm_judge.py                 # LLM-as-Judge with position-bias control
+|   |   +-- human_judge.py               # CLI-based human preference labelling
+|   |-- storage/
+|   |   |-- categorize.py                # Category validation (HR/FINANCIAL/GENERAL)
+|   |   |-- json_store.py                # Active: append-only JSONL backend
+|   |   +-- sqlite_store.py              # Drop-in SQLite backend
+|   |-- export/
+|   |   |-- dpo_export.py                # DPO JSONL export with label filtering
+|   |   +-- filters.py                   # Filter pipeline: unlabelled, ties, errors, near-duplicates
+|   +-- training/
+|       |-- dataset.py                   # HuggingFace Dataset loader for DPO training
+|       |-- dpo_config.py                # Per-category DPO + LoRA hyperparameters
+|       |-- evaluate.py                  # Reward margin + human consistency evaluation
+|       +-- train.py                     # DPO fine-tuning via TRL DPOTrainer + PEFT
+|
+|-- ml/
+|   |-- train_detector.py                # Generic SFT fine-tuning entry point
+|   |-- train_prompt_injection.py        # Injection-specific training pipeline
+|   |-- common/                          # data_utils.py, eval_utils.py, lora_utils.py
+|   |-- fairness/train.py                # Counterfactual fairness model training
+|   |-- grounding/                       # NLI model evaluation scripts
+|   |-- safety/                          # Safety classifier evaluation scripts
+|   |-- prompt_injection/                # Injection classifier pipeline
+|   |-- notebooks/train_detectors.py     # Orchestrated training notebook
+|   +-- scripts/
+|       |-- build_detector_dataset.py    # Build training datasets from prod signals (40/60 mix)
+|       |-- train_from_production.py     # Master orchestrator: data -> SFT -> recalibrate
+|       |-- recalibrate_thresholds.py    # Online threshold recalibration (every 6h, no downtime)
+|       |-- train_all_detectors.py       # Train all 4 detector tasks in sequence
+|       |-- train_scaled_detectors.py    # HuggingFace + Kaggle dataset training
+|       |-- calibrate_sensitive_intent.py # Embedding-based intent threshold calibration
+|       |-- calibrate_session_accumulator.py # EWMA/peak parameter calibration
+|       |-- compare_detectors.py         # A/B comparison of model versions
+|       |-- evaluate_model.py            # Per-task model evaluation suite
+|       |-- export_onnx.py               # ONNX export for production inference
+|       |-- download_pretrained.py       # Pre-trained model download scripts
+|       +-- download_minilm.py           # MiniLM embedding model downloader
+|
+|-- policies/
+|   |-- global.yaml                      # Universal fallthrough governance rules
+|   |-- hr.yaml                          # HR-scoped policy (PII & authorization)
+|   |-- finance.yaml                     # Finance-scoped policy (loan decisions, PII redaction)
+|   |-- support.yaml                     # Support bot policy (injection & redaction)
+|   |-- agent_tools.yaml                 # 7 rules governing tool calls (refunds, email, delete)
+|   +-- hallucination_bias_rules.yaml    # Hallucination and bias threshold rules
+|
+|-- frontend/
+|   |-- streamlit_app.py                 # Interactive Streamlit UI -- 7 tabs, ~2700 lines
+|   |-- components.py                    # Shared Streamlit widget components
+|   +-- theme.css                        # Custom Streamlit CSS theme
+|
+|-- tenants/
+|   |-- default.yaml                     # Default tenant configuration
+|   |-- acme_corp.yaml                   # ACME Corp tenant (demo)
+|   +-- demo_tenant.yaml                 # Demo tenant
+|
+|-- scripts/
+|   |-- run_golden_path.py               # HR golden-path end-to-end demo
+|   |-- run_agent_governance_demo.py     # 8-scenario agent tool-call demo
+|   |-- run_audit_integrity_demo.py      # 3-act tamper-evident ledger demo
+|   +-- eval_rag_triad.py               # RAG triad CI evaluation script
+|
+|-- k8s/
+|   |-- namespace.yaml                   # controlplane namespace
+|   |-- deployment.yaml                  # API Deployment (2 replicas, resource limits)
+|   |-- service.yaml                     # ClusterIP service
+|   |-- hpa.yaml                         # HPA: scale 2->10 replicas on CPU > 70%
+|   |-- pvc.yaml                         # PersistentVolumeClaim for audit DB
+|   +-- secrets.example.yaml             # Secret manifest template
+|
+|-- docs/
+|   |-- architecture.md                  # Detailed architecture documentation
+|   |-- AGENT_GOVERNANCE_QUICKSTART.md   # Agentic governance quick start guide
+|   |-- AUDIT_INTEGRITY_QUICKSTART.md    # Tamper-evident ledger quick start
+|   |-- agent_tool_governance_spec.md    # Full agent tool governance specification
+|   |-- audit_integrity_spec.md          # Merkle audit ledger specification
+|   +-- pii_gap_diagnosis.md             # PII detection coverage analysis
+|
++-- tests/                               # 27 test modules, 200+ tests
+    |-- test_golden_path.py
+    |-- test_governance.py
+    |-- test_gateway_api.py
+    |-- test_policy_engine.py
+    |-- test_async_service.py
+    |-- test_agent_governance.py
+    |-- test_audit_integrity.py
+    |-- test_hallucination_bias.py
+    |-- test_sensitive_data_coverage.py
+    |-- test_rag.py
+    |-- test_session_accumulator.py
+    |-- test_model_backend.py
+    |-- test_rlhf_integration.py
+    |-- test_llm_client.py
+    |-- test_groq_llm_client.py
+    |-- test_fast_lane.py
+    |-- test_adversarial.py
+    |-- test_multi_tenant.py
+    |-- test_observability.py
+    |-- test_performance.py
+    |-- test_reliability.py
+    |-- test_scalability.py
+    |-- test_security.py
+    |-- test_prompt_registry.py
+    |-- test_ml_pipeline.py
+    |-- test_paraphrase_consistency.py
+    +-- test_accumulator_calibration_integrity.py
 ```
 
 ---
 
-## 🚀 Quick Start & Setup
+## Quick Start & Setup
 
 ### Prerequisites
-- Python 3.11+
-- A [Groq API key](https://console.groq.com) for LLM-powered features (Ask ControlPlane, Advanced Inspector, RLHF judging)
+
+- **Python 3.11+**
+- A [Groq API key](https://console.groq.com/keys) for LLM-powered features
+- Git
 
 ### 1. Clone & Install
 
@@ -368,46 +460,54 @@ pip install -r requirements.txt
 ### 2. Configure Environment
 
 ```powershell
-# Copy the example file and fill in your values
 copy .env.example .env
 ```
 
-At minimum, set your Groq API key:
+Minimum settings for full functionality:
+
 ```env
-GROQ_API_KEY=your-groq-key-here
+GROQ_API_KEY=gsk_your-groq-key-here
 GROQ_MODEL=openai/gpt-oss-120b
 CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED=true
+CP_JUDGE_PROVIDER=groq
 ```
 
 ### 3. Build RAG Indices
 
 ```powershell
-# Ingest regulatory corpora, internal KB, and YAML policies into the vector store
 python -m rag.ingestion.ingest
 ```
 
-### 4. Run the Full Test Suite
+### 4. Run the Test Suite
 
 ```powershell
+# Full suite
 pytest -q
-# Expected: 191 passed, 4 skipped across 19 test modules
+
+# Skip slow/performance tests (CI mode)
+pytest -q -m "not slow"
 ```
 
 ### 5. Start the Application
 
-**Option A: Local (PowerShell — two terminals)**
-```powershell
-# Terminal 1 — FastAPI Backend (Port 8000)
-$env:GROQ_API_KEY="your-key"
-$env:GROQ_MODEL="openai/gpt-oss-120b"
-$env:CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED="true"
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+**Local (two terminals):**
 
-# Terminal 2 — Streamlit Dashboard (Port 8501)
-python -m streamlit run frontend/streamlit_app.py --server.port 8501 --server.headless true
+```powershell
+# Terminal 1 -- Backend
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2 -- Frontend
+python -m streamlit run frontend/streamlit_app.py --server.port 8501
 ```
 
-**Option B: Docker Compose**
+**One-command launcher:**
+
+```powershell
+.\start.ps1
+```
+
+**Docker Compose:**
+
 ```powershell
 docker compose up --build
 ```
@@ -415,399 +515,516 @@ docker compose up --build
 | Service | URL |
 |---|---|
 | **Streamlit Dashboard** | http://localhost:8501 |
-| **API (Swagger / OpenAPI)** | http://localhost:8000/docs |
+| **API Swagger / OpenAPI** | http://localhost:8000/docs |
 | **Health Check** | http://localhost:8000/health |
+| **Prometheus Metrics** | http://localhost:8000/metrics |
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 ### Core Governance
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/v1/govern` | **Core governance endpoint** — full hot-path pipeline evaluation |
-| `POST` | `/v1/chat` | Chat endpoint — human-readable wrapper around `/v1/govern` |
-| `POST` | `/v1/inspect` | Advanced LLM-backed inspector (slow path, never blocks hot path) |
-| `GET` | `/health` | Gateway health, registered detectors, and policy summary |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/govern` | API Key | **Core governance endpoint** -- full hot-path pipeline |
+| `POST` | `/v1/chat` | API Key | Human-readable chat wrapper around `/v1/govern` |
+| `POST` | `/v1/inspect` | API Key | Slow-path LLM-backed advanced inspector |
+| `GET` | `/health` | None | Gateway health, registered detectors, policy summary |
+| `GET` | `/v1/health/deep` | None | Deep probe: DB, circuit breaker, session store, ML thread pool |
+
+**Example request:**
+
+```json
+POST /v1/govern
+Authorization: demo-key-001
+
+{
+  "user_id": "emp-101",
+  "user_role": "employee",
+  "department": "HR",
+  "application_id": "hr-copilot",
+  "prompt": "Show me John Smith's salary and performance review",
+  "data_classification": "HIGH",
+  "session_id": "sess-abc123"
+}
+```
+
+**Example response:**
+
+```json
+{
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "decision": {
+    "action": "BLOCK",
+    "reason": "Unauthorized access to PII-classified data",
+    "policy_id": "hr-pii-unauthorized"
+  },
+  "risk": {
+    "overall_risk": 0.87,
+    "session_risk": 0.23,
+    "session_band": 1
+  },
+  "detectors": [
+    { "detector_name": "pii", "score": 0.85, "label": "PII_DETECTED" },
+    { "detector_name": "authorization", "score": 0.92, "label": "UNAUTHORIZED_ACCESS" }
+  ],
+  "policy_evidence": { "citations": [], "regulatory_refs": [] },
+  "async_job_id": "async-550e8400",
+  "latency_ms": 23.4
+}
+```
 
 ### Metrics & Audit
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/v1/metrics` | Aggregate request counts and decision distribution |
-| `GET` | `/v1/metrics/rich` | Extended metrics with chart data: risk distribution, latency trend, risk trend, detector fire rates, blocked-by-policy breakdown |
-| `GET` | `/v1/audits` | Recent audit records (up to 200) |
-| `GET` | `/v1/audits/{request_id}` | Single audit record by request ID |
-| `GET` | `/v1/audit/integrity` | Run full Merkle + hash-chain tamper verification |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/metrics` | API Key | Aggregate request counts and decision distribution |
+| `GET` | `/v1/metrics/rich` | API Key | Extended metrics: risk distribution, latency trend, detector fire rates |
+| `GET` | `/v1/requests` | API Key | Recent request list (up to 200) |
+| `GET` | `/v1/audits` | API Key | Recent audit records (up to 200) |
+| `GET` | `/v1/audits/{request_id}` | API Key | Single audit record |
+| `GET` | `/v1/audit/integrity` | API Key | Full Merkle + hash-chain tamper verification |
 
 ### Policy & Reviews
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/v1/policies` | Loaded policy rules summary |
-| `GET` | `/v1/reviews` | Pending human review queue |
-| `POST` | `/v1/reviews/{id}/resolve` | Resolve a human review — action propagates to auto-tuner |
-| `POST` | `/v1/feedback` | Submit a reviewer feedback override (FPR/FNR classification) |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/policies` | API Key | Loaded policy rules summary |
+| `GET` | `/v1/reviews` | API Key | Pending human review queue |
+| `POST` | `/v1/reviews/{id}/resolve` | API Key | Resolve review -- propagates to auto-tuner + training flywheel |
+| `POST` | `/v1/feedback` | API Key | Submit reviewer feedback override |
 
 ### Self-Governing Auto-Tuner
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/v1/feedback/tuning` | **Dry-run** — preview NUDGE / ESCALATE / HOLD decisions without writing any files |
-| `POST` | `/v1/feedback/tuning/apply` | **Apply** — write NUDGE threshold changes to policy YAML files |
-| `POST` | `/v1/feedback/tuning/seed-demo` | Seed 25 realistic review records to demonstrate all three decision patterns |
-| `GET` | `/v1/feedback/tuning/history` | Audit trail of all threshold changes applied to YAML files |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/feedback/tuning` | API Key | **Dry-run** -- preview NUDGE / ESCALATE / HOLD |
+| `POST` | `/v1/feedback/tuning/apply` | API Key | **Apply** -- write threshold changes to YAML files |
+| `POST` | `/v1/feedback/tuning/seed-demo` | API Key | Seed 25 realistic review records |
+| `GET` | `/v1/feedback/tuning/history` | API Key | Full audit trail of threshold changes |
 
 ### Ask ControlPlane (RAG)
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/v1/ask-controlplane` | Compliance Q&A with citation-grounded answers |
-| `POST` | `/v1/ask-controlplane/reindex` | Rebuild the audit index for Ask ControlPlane |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/ask-controlplane` | API Key | Compliance Q&A with citation-grounded answers |
+| `POST` | `/v1/ask-controlplane/reindex` | Admin Key | Rebuild the audit index |
 
-### Session & Jobs
+### Session & Async Jobs
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/v1/session/{session_id}` | Live session accumulator state (EWMA, peak, band, contamination) |
-| `GET` | `/v1/jobs/{job_id}` | Async analytics job status |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/session/{session_id}` | API Key | Live session accumulator state |
+| `GET` | `/v1/jobs/{job_id}` | API Key | Async analytics job status |
+| `GET` | `/v1/async/{request_id}` | API Key | Async job by governance request ID |
 
 ### RLHF
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/v1/rlhf/status` | Preference pair collection statistics by category |
-| `POST` | `/v1/rlhf/export` | Trigger DPO JSONL export |
-| `GET` | `/v1/rlhf/export/latest` | Retrieve latest export content |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/rlhf/status` | None | Preference pair collection statistics |
+| `POST` | `/v1/rlhf/export` | None | Trigger DPO JSONL export |
+| `GET` | `/v1/rlhf/export/latest` | None | Retrieve latest export content |
 
 ### Agent Governance
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/agent/act` | Agent tool-call governance endpoint |
-| `GET` | `/agent/pending` | Pending agent actions awaiting human review |
-| `POST` | `/admin/reload-models` | Hot-reload all ML model caches |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/agent/act` | API Key | Agent tool-call governance endpoint |
+| `GET` | `/agent/pending` | API Key | Pending agent actions awaiting human review |
+| `POST` | `/agent/pending/{id}/resolve` | API Key | Resolve a pending agent action |
+
+### Admin
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/admin/reload-models` | Admin Key | Hot-reload all ML model caches |
+| `GET` | `/v1/admin/dead-letters` | API Key | List failed async events in dead-letter store |
+| `POST` | `/v1/admin/dead-letters/{id}/retry` | API Key | Retry a failed async event |
+| `DELETE` | `/v1/admin/dead-letters/{id}` | API Key | Delete a dead-letter entry |
 
 ---
 
-## 🔍 Feature Deep Dives
+## Feature Deep Dives
 
 ### 1. Hot-Path Detector Pipeline
 
-Seven detectors are loaded via a self-registration `DETECTOR_REGISTRY` and executed concurrently via `asyncio.gather`. Each returns a `DetectorResult` with a `score` (0–1), `label`, `confidence`, and `evidence` list.
+Seven detectors are loaded via a self-registration `DETECTOR_REGISTRY` and executed concurrently via `asyncio.gather`. Each returns a `DetectorResult` with a `score` (0-1), `label`, `confidence`, and `evidence` list.
 
 | Detector | What it catches |
 |---|---|
-| `pii` | 6 data categories: financial (card, CVV, UPI, IFSC), government IDs (PAN, Aadhaar, SSN, Passport, DL), HR records, medical history, credentials, plus a fail-cautious safety net for detail-seeking language |
-| `injection` | Instruction-override signatures, DAN jailbreaks, prompt extraction, and role-manipulation patterns |
-| `authorization` | RBAC: verifies the requesting user's role against the sensitivity of the data they are accessing |
+| `pii` | 6 data categories: financial (card, CVV, UPI, IFSC), government IDs (PAN, Aadhaar, SSN, Passport, DL), HR records, medical history, credentials + fail-cautious safety net |
+| `injection` | Instruction-override signatures, DAN jailbreaks, prompt extraction, role-manipulation patterns |
+| `authorization` | RBAC: verifies the requesting user's role+department against the sensitivity of the data being accessed |
 | `safety` | Violence, hacking, exploit, and harmful content patterns |
-| `hallucination` | Extracts checkable claims (dates, numbers, named entities) and cross-references the request's `retrieved_context` in <0.5ms |
-| `bias` | Protected-attribute proximity detector — flags age, gender, race, religion, or disability cited as reasons in decision contexts (ECOA / Title VII / EU AI Act) |
-| `sensitive_query_intent` | Heuristic for detail-seeking language about named third parties even when explicit PII keywords are absent |
-
-All seven produce `DetectorResult` objects that feed directly into the Noisy-OR Risk Engine.
+| `hallucination` | Extracts checkable claims (dates, numbers, named entities) and cross-references `retrieved_context` in <0.5ms |
+| `bias` | Protected-attribute proximity detector -- flags age, gender, race, religion, disability cited as reasons in decision contexts (ECOA / Title VII / EU AI Act) |
+| `sensitive_query_intent` | Heuristic for detail-seeking language about named third parties when explicit PII keywords are absent |
 
 ---
 
-### 2. Session Risk Accumulator
+### 2. Context-Aware RBAC (Two-Layer Permission Resolution)
 
-Enabled via `CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED=true`. Tracks risk across multiple conversation turns using a **dual-signal** design:
+The `enrich_context()` function in `backend/gateway/context_enrichment.py` applies a two-layer permission model:
 
-- **EWMA score** (`alpha=0.01` calibrated) — exponentially weighted per-turn average; responsive to sustained patterns.
-- **Peak-with-decay** (`peak_decay=0.99` calibrated) — remembers the worst turn seen but lets it slowly fade; prevents session-evasion (behaving well after a bad turn).
-- **Session risk** = `max(EWMA, peak)`, classified into Band 1 / 2 / 3.
+**Layer 1 -- Role-Based Permissions:**
+
+| Role | can_access_salary | can_view_medical_records | can_access_banking | is_admin |
+|---|---|---|---|---|
+| `admin` | Yes | Yes | Yes | Yes |
+| `hr-manager` | Yes | No | No | No |
+| `finance-manager` | No | No | Yes | No |
+| `doctor` | No | Yes | No | No |
+| `employee` | No | No | No | No |
+| `security_auditor` | No | No | No | No |
+
+**Layer 2 -- Department-Specific Overrides (OR logic):**
+
+| Department | Grants |
+|---|---|
+| `medical` | `can_view_medical_records = True` |
+| `hr` | `can_access_salary = True` |
+| `finance` / `payroll` | `can_access_banking = True` |
+| `legal` | `can_view_medical_records = True` |
+| `security` | `is_security_auditor = True` |
+
+**Key example:** An `employee` in `department="HR"` gets `can_access_salary=True` from the department grant (they need it for their job). An `employee` in `department="Sales"` does not, so the `authorization` detector fires >= 0.5, triggering `hr-pii-unauthorized -> BLOCK`.
+
+---
+
+### 3. Session Risk Accumulator
+
+Enabled via `CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED=true`. Tracks risk across conversation turns using a dual-signal design:
+
+- **EWMA score** (`alpha=0.01`) -- exponentially weighted per-turn average; responsive to sustained patterns
+- **Peak-with-decay** (`peak_decay=0.99`) -- remembers the worst turn seen, prevents session-evasion attacks
+- **Session risk** = `max(EWMA, peak)`, classified into Band 1 / 2 / 3
 
 Additional capabilities:
-- **Entity reconstruction**: Maintains a rolling PII fragment window across turns. If concatenating fragments from the last N turns triggers the PII regex that no individual turn triggered, the reconstruction attack is flagged.
-- **Tool-chain contamination**: Once sensitive data touches a tool in a session, that tool is marked contaminated for the session TTL.
-- **Fast-lane integration**: A fired fast-lane correction adds a risk spike of 1.0 on the next accumulator update.
-- **Calibration**: Parameters loaded from `calibration.json`; falls back to safe defaults.
-- **Storage backends**: `InMemorySessionStore` (default) or `RedisSessionStore` (multi-worker).
-
-Session state exposed via `GET /v1/session/{session_id}` and displayed live in the Streamlit sidebar.
+- **Entity reconstruction**: Maintains a rolling PII fragment window. Concatenating fragments across turns that collectively trigger the PII regex -- even when no individual turn would -- is detected and flagged
+- **Tool-chain contamination**: Once sensitive data touches a tool, that tool is marked contaminated for the session TTL
+- **Fast-lane integration**: A fired fast-lane correction adds a risk spike of 1.0 on the next accumulator update
+- **Storage backends**: `InMemorySessionStore` (default) or `RedisSessionStore` (multi-worker)
 
 ---
 
-### 3. Fast-Lane Post-Response Analysis
+### 4. Fast-Lane Post-Response Analysis
 
 After the synchronous governance decision is returned, any detectors marked `fast_async=True` run as a background task with a **250ms timeout**. On high-risk results:
 
-- The SQLite job record is updated with `fast_lane_results`.
-- If the request included a `fast_lane_webhook` URL, a `POST` with `action=RETRACT` is sent — allowing the application to retract an already-delivered response.
-- The fast-lane correction count feeds into the session accumulator for the next turn.
+- The SQLite job record is updated with `fast_lane_results`
+- If the request included a `fast_lane_webhook` URL, a `POST` with `action=RETRACT` is sent -- allowing the application to retract an already-delivered response
+- The fast-lane correction count feeds into the session accumulator for the next turn
 
 ---
 
-### 4. Self-Governing Threshold Auto-Tuner
+### 5. Self-Governing Threshold Auto-Tuner
 
-**Section 5.12** of the architecture — ControlPlane applies the same governance principle to **itself**.
-
-When human reviewers repeatedly override a rule's decisions (e.g., approving requests that were flagged as BLOCK), it signals the rule is firing too aggressively. The auto-tuner reads those resolved reviews and computes an override rate per rule:
+ControlPlane applies the same governance principle to **itself**.
 
 ```
-Review Queue Resolutions ──▶ Override Rate per Rule ──▶ Tuning Decision
+Review Queue Resolutions --> Override Rate per Rule --> Tuning Decision
 ```
 
 | Condition | Decision | Effect |
 |---|---|---|
-| < 5 resolved reviews | **⏳ INSUFFICIENT DATA** | No change — too few signals |
-| Override rate < 25% | **✅ HOLD** | Rule is performing correctly |
-| 25% ≤ rate < 50% | **🔼 NUDGE** | Detector threshold raised by +0.05 in YAML |
-| Override rate ≥ 50% | **🚨 ESCALATE** | Stop nudging — rule definition needs human redesign |
+| < 5 resolved reviews | **INSUFFICIENT DATA** | No change |
+| Override rate < 25% | **HOLD** | Rule is performing correctly |
+| 25% <= rate < 50% | **NUDGE** | Detector threshold raised +0.05 in YAML |
+| Override rate >= 50% | **ESCALATE** | Stop nudging -- rule needs human redesign |
 
-**Structural safety guarantee:** This mechanism can only push thresholds **up** (require more detector evidence). It structurally cannot lower thresholds or make the system less safe.
+**Structural safety guarantee:** Can only push thresholds **up**. Structurally cannot lower thresholds or make the system less safe.
 
 **Audit trail:** Every applied NUDGE is logged to the `tuning_history` table with timestamp, rule ID, old/new threshold, override rate, and reasoning.
 
-**API:**
-```
-GET  /v1/feedback/tuning           → Dry-run preview
-POST /v1/feedback/tuning/apply     → Write YAML changes
-POST /v1/feedback/tuning/seed-demo → Seed realistic demo data
-GET  /v1/feedback/tuning/history   → Full audit changelog
-```
+---
+
+### 6. Human Review Queue & Feedback Loop
+
+When the policy engine issues a `HUMAN_REVIEW` decision, the request is **held** in the review queue. Reviewers resolve via `POST /v1/reviews/{id}/resolve` with:
+- `final_action` -- the actual disposition (`ALLOW`, `BLOCK`, `MODIFY`, `REROUTE`)
+- `reviewer_id` -- audit identity
+- `notes` -- free-text rationale
+
+**Full feedback loop:**
+1. Resolution feeds the Self-Governing Auto-Tuner (override rate tracking)
+2. Resolution reconstructs the original `GovernanceRequest` from audit DB and writes a **gold-label training signal** (`label_confidence=1.0`) to the training collector
 
 ---
 
-### 5. Human Review Queue & Feedback Loop
-
-When the policy engine issues a `HUMAN_REVIEW` decision, the request is **held** in the review queue — nothing is silently auto-blocked or auto-approved.
-
-Reviewers resolve via `POST /v1/reviews/{id}/resolve` with:
-- `final_action` — the actual disposition (`ALLOW`, `BLOCK`, `MODIFY`, `REROUTE`)
-- `reviewer_id` — audit identity
-- `notes` — free-text rationale
-
-**The feedback loop closes:** If a reviewer resolves `HUMAN_REVIEW` to `ALLOW` (different from the original implied `BLOCK`), that counts as an **override** — a false-positive signal. These accumulate per-rule and feed the Self-Governing Auto-Tuner, causing that rule's detector threshold to be automatically raised.
-
-This is the only way the system learns from its own mistakes without requiring model retraining.
-
----
-
-### 6. Policy RAG & Ask ControlPlane
+### 7. Policy RAG & Ask ControlPlane
 
 **Policy RAG** (`rag/policy/policy_rag.py`) runs in parallel with the decision engine:
-- Constructs a domain-specific retrieval query from request context (role, department, matched rule, data classification, action).
-- Retrieves matching clauses from GDPR, EU AI Act, HIPAA, and internal YAML policies using TF-IDF/LSA or Sentence-Transformers + ChromaDB (or a zero-dependency NumPy fallback).
-- Annotates the `GovernanceResponse` with a `policy_evidence` field. **Never blocks or alters the decision.**
-- Warm path: ~2ms; cold path (first request): <40ms budget enforced.
+- Constructs a domain-specific retrieval query from context (role, department, matched rule, data classification, action)
+- Retrieves matching clauses from GDPR, EU AI Act, HIPAA, and internal YAML policies
+- Annotates the `GovernanceResponse` with a `policy_evidence` field. **Never blocks or alters decisions.**
+- Warm path: ~2ms; cold path: <40ms budget enforced
 
 **Ask ControlPlane** (`rag/ask_controlplane/`) is an interactive compliance Q&A assistant:
-- Hybrid retrieval over both the policy corpus and the SQLite audit database.
-- Synthesises answers via Groq (`openai/gpt-oss-120b`) with citation verification.
-- Falls back to extractive mode (lists evidence directly) when no API key is configured or on any LLM failure.
-- All evidence is wrapped in explicit injection-hardening delimiters before being passed to the LLM.
-
-**Available at:** `POST /v1/ask-controlplane` and the **🧠 Ask ControlPlane (RAG)** tab in the UI.
+- Hybrid retrieval over the policy corpus and the SQLite audit database
+- Synthesises answers via Groq with citation verification
+- Falls back to extractive mode when no API key is configured
 
 ---
 
-### 7. LLM-Powered Advanced Inspector
+### 8. LLM-Powered Advanced Inspector
 
-`POST /v1/inspect` runs a **separate slow-path** LLM analysis using Groq. It:
-- Accepts a `prompt`, optional `response`, and optional `context` list.
-- Returns: `applicable_policy`, `evidence_refs`, `detected_risk`, `reason`, `required_controls`, `recommendation`, `generation_mode`, `citation_check`, and `latency_ms`.
-- Wraps all evidence in injection-hardening delimiters (`<evidence>...</evidence>`).
-- Verifies every `[N]` citation in the answer against the actual evidence count.
-- **Never enforces policy** — the LLM describes evidence and recommends; all enforcement stays in the hot path.
-
-**Available as:** the **🔬 Advanced Inspector** tab in the Streamlit UI.
+`POST /v1/inspect` runs a **separate slow-path** LLM analysis via Groq:
+- Returns: `applicable_policy`, `evidence_refs`, `detected_risk`, `reason`, `required_controls`, `recommendation`, `citation_check`, `latency_ms`
+- All evidence wrapped in injection-hardening delimiters (`<evidence>...</evidence>`)
+- Verifies every `[N]` citation against the actual evidence count
+- **Never enforces policy** -- the LLM describes; all enforcement stays in the hot path
 
 ---
 
-### 8. Agentic Tool-Call Governance
+### 9. Agentic Tool-Call Governance
 
 Autonomous agents propose tool calls via `POST /agent/act`. The `ToolGovernor` intercepts before execution:
 
-- **Risk scoring** (`backend/agents/risk.py`): Evaluates action sensitivity, parameters (e.g., refund amounts), user roles, and session risk carryover from the main governance pipeline.
-- **Policy evaluation** (`policies/agent_tools.yaml`):
-  - Refunds < $50 by support agents → `ALLOW`
-  - Refunds $50–$500 → `HUMAN_REVIEW`
-  - Refunds > $500 → `BLOCK`
-  - Deleting records containing PII without admin role → `BLOCK`
-  - Elevated session risk from a prior turn escalates otherwise clean tool calls
-- **Outcomes**: `ALLOW` (tool executes), `HUMAN_REVIEW` (held in agent pending queue), `BLOCK` (aborted with reason).
+**Policy evaluation** (`policies/agent_tools.yaml`):
+- Refunds < $500 -> `ALLOW`
+- Refunds $500-$2000 -> `HUMAN_REVIEW`
+- Refunds > $2000 -> `BLOCK`
+- Deleting PII-flagged records without admin role -> `BLOCK`
+- Sending PII to external email -> `BLOCK`
+- Session risk > 0.6 -> `HUMAN_REVIEW` for any tool call
+
+**Outcomes:** `ALLOW` (tool executes), `HUMAN_REVIEW` (held in queue), `BLOCK` (aborted with reason)
 
 ---
 
-### 9. RLHF / DPO Preference Data Pipeline
+### 10. RLHF / DPO Preference Data Pipeline
 
-A production-ready data flywheel that collects preference data from live traffic for fine-tuning governance models:
+A production-ready data flywheel for fine-tuning governance models:
 
-1. **Sampling** (`rlhf/sampler.py`): `maybe_collect_pair()` is called as a background task on every `/v1/chat` request. 1-in-N requests trigger dual-model generation.
-2. **Generation** (`rlhf/generators/`): Two model responses are generated concurrently (API-vs-API or local-vs-local).
-3. **Category validation** (`rlhf/storage/categorize.py`): Every pair is assigned a `Category` (HR, FINANCIAL, SAFETY, FAIRNESS, AGENTIC, GENERAL), preventing cross-contamination between fine-tuning runs.
-4. **Storage** (`rlhf/storage/json_store.py`): Append-only JSONL; SQLite drop-in ready via `RLHF_STORAGE_BACKEND=sqlite`.
-5. **Labelling** (`rlhf/judges/`): LLM-as-Judge with position-bias control (response order is swapped; ties on disagreement).
-6. **Export** (`rlhf/export/dpo_export.py`): Filters unlabelled/tie/error/duplicate pairs and writes `{prompt, chosen, rejected}` DPO JSONL files.
-7. **Training** (`rlhf/training/`): Per-category `DPORunConfig` with LoRA r/alpha/modules, integrated with TRL's `DPOTrainer` and PEFT.
-8. **Evaluation** (`rlhf/training/evaluate.py`): Average reward margin + human-prompt consistency check with position-bias control.
-
-**Monitored via:** `GET /v1/rlhf/status`, `POST /v1/rlhf/export`, and the **🔁 RLHF Monitor** tab in the UI.
+1. **Sampling** (`rlhf/sampler.py`): `maybe_collect_pair()` fires on every `/v1/chat` -- 1-in-N sampling
+2. **Generation** (`rlhf/generators/`): Two model responses generated concurrently
+3. **Category validation** (`rlhf/storage/categorize.py`): Assigns `Category` (HR, FINANCIAL, GENERAL)
+4. **Storage** (`rlhf/storage/json_store.py`): Append-only JSONL; SQLite drop-in via `RLHF_STORAGE_BACKEND=sqlite`
+5. **Labelling** (`rlhf/judges/`): LLM-as-Judge with position-bias control (order swapped; ties on disagreement)
+6. **Export** (`rlhf/export/dpo_export.py`): Filters and writes `{prompt, chosen, rejected}` DPO JSONL files
+7. **Training** (`rlhf/training/`): Per-category `DPORunConfig` with LoRA r/alpha/modules, integrated with TRL `DPOTrainer`
+8. **Evaluation** (`rlhf/training/evaluate.py`): Average reward margin + human-prompt consistency check
 
 ---
 
-### 10. Tamper-Evident Merkle Audit Ledger
+### 11. Continuous Learning Flywheel
+
+The most significant architectural addition -- a closed-loop learning system that improves detectors from production traffic:
+
+```
+Every API request
+  |
+  +-- Hot path detectors run synchronously (<50ms)
+  |
+  +-- Async pipeline fires in background (worker.py)
+        |
+        +-- Runs deep LLM analytics engines
+        |
+        +-- Compares hot vs async scores per detector task
+        |
+        +-- If |delta| > 0.2 -> writes to rlhf/data/detector_training/
+        |     Label priority:
+        |       human override (confidence=1.0, gold)
+        |       > high-conf async score (confidence=0.9, silver)
+        |       > large disagreement async decision (confidence=0.7, bronze)
+        |     PII redaction applied before disk persistence
+        |     Context-prefix for authorization: [DEPT:...] [ROLE:...] [CLASS:...]
+        |
+        +-- Smart sampling gate:
+              risk >= CONTROLPLANE_ASYNC_LLM_RISK_THRESHOLD (0.20) -> 100% LLM analysis
+              risk < threshold -> CONTROLPLANE_ASYNC_LLM_SAMPLE_RATE (5%) sampled
+
+Human review resolutions
+  |
+  +-- collect_human_override() writes gold-label training examples (confidence=1.0)
+
+ml/scripts/recalibrate_thresholds.py (every 6h, online)
+  |
+  +-- Evaluates recent 500 production signals per task
+  +-- Optimises thresholds at target FNR=0.03
+  +-- Hot-writes calibration.json (live on next request, no restart)
+
+ml/scripts/train_from_production.py (periodic, scheduled)
+  |
+  +-- Refreshes per-task datasets (40% public baseline + 60% production)
+  +-- SFT fine-tunes injection, safety, pii, fairness classifiers
+  +-- Threshold recalibration for embedding-based tasks
+```
+
+**Max collection rate:** 10,000 records/day (rotating daily JSONL)
+**Location:** `rlhf/data/detector_training/raw_signals_YYYY-MM-DD.jsonl`
+
+---
+
+### 12. Detector Training Pipeline (ML Scripts)
+
+| Script | Purpose |
+|---|---|
+| `build_detector_dataset.py` | Assembles 40% public baseline + 60% production signals; 3x oversampling for disagreements |
+| `train_from_production.py` | Master orchestrator: fetch data -> SFT -> recalibrate all tasks |
+| `recalibrate_thresholds.py` | Online threshold recalibration (no downtime, runs every 6h) |
+| `train_all_detectors.py` | Train injection, safety, pii, fairness classifiers in sequence |
+| `train_scaled_detectors.py` | Large-scale training from HuggingFace + Kaggle datasets |
+| `calibrate_sensitive_intent.py` | Embedding-based intent threshold calibration |
+| `calibrate_session_accumulator.py` | EWMA/peak parameter calibration |
+| `compare_detectors.py` | A/B performance comparison between model versions |
+| `evaluate_model.py` | Per-task evaluation (precision, recall, F1, AUC) |
+| `export_onnx.py` | ONNX export for quantized production inference |
+| `download_pretrained.py` | Download pretrained NLI/fairness/injection models |
+
+---
+
+### 13. Tamper-Evident Merkle Audit Ledger
 
 Every governance decision is recorded with a cryptographic chain of custody:
 
-- **Privacy-preserving hashing**: Audit contexts are HMAC-hashed with `CONTROLPLANE_AUDIT_HASH_KEY` — the raw prompt never appears in the ledger in plaintext.
-- **SHA-256 hash chain**: Each record's hash is computed over `SHA-256(H_{i-1} || canonical_JSON(R_i))`. Any modification breaks the chain.
-- **RFC 6962 Merkle tree checkpoints**: Every 10 records, a Merkle tree is computed over the batch. The root is HMAC-signed and written to an independent append-only anchor file (`.integrity.jsonl`).
-- **Independent verifier**: Detects both naive (modify record content) and sophisticated (re-compute hash chain) attacks — a rechained ledger's root will mismatch the externally-signed checkpoint.
-- **Integrity endpoint**: `GET /v1/audit/integrity` returns `TAMPER_FREE` or `TAMPERED` with the first broken sequence number.
+- **Privacy-preserving hashing**: Audit contexts are HMAC-hashed -- raw prompts never appear in plaintext
+- **SHA-256 hash chain**: `SHA-256(H_{i-1} || canonical_JSON(R_i))` -- any modification breaks the chain
+- **RFC 6962 Merkle tree checkpoints**: Every 10 records, a Merkle tree is computed. Root is HMAC-signed and written to the independent anchor file (`controlplane.integrity.jsonl`)
+- **Independent verifier**: Detects both naive (modify record content) and sophisticated (re-compute hash chain) attacks
+- **Integrity endpoint**: `GET /v1/audit/integrity` returns `TAMPER_FREE` or `TAMPERED` with first broken sequence number
 
 ---
 
-### 11. Two-Layer Hallucination & Grounding Detection
+### 14. Two-Layer Hallucination & Grounding Detection
 
 **Hot-path** (`detectors/hallucination.py`):
-- Extracts specific checkable claims (dates, numbers, named entities) from the response.
-- Cross-references them against `retrieved_context` in the request in <0.5ms.
-- Raises a risk signal if unverifiable claims are detected without supporting context.
+- Extracts specific checkable claims (dates, numbers, named entities)
+- Cross-references against `retrieved_context` in <0.5ms
 
 **Deep async** (`async_engines/grounding.py`):
-- Ensembles **NLI cross-encoder entailment** (`cross-encoder/nli-deberta-v3-base`), **LLM-as-judge**, and **SelfCheckGPT self-consistency resampling**.
+- Ensembles **NLI cross-encoder entailment** (`cross-encoder/nli-deberta-v3-base`), **LLM-as-judge**, and **SelfCheckGPT self-consistency resampling**
 
 **Grounding RAG** (`rag/grounding/`):
-- Lexical and number-penalty entailment checker scoring claims against the internal knowledge base corpus.
+- Lexical and number-penalty entailment checker scoring claims against the internal knowledge base corpus
 
 ---
 
-### 12. Two-Layer Bias & Fairness Detection
+### 15. Two-Layer Bias & Fairness Detection
 
 **Hot-path** (`detectors/bias.py`):
-- Fast regex proximity detector catching protected attributes (age, gender, race, religion, disability, nationality) cited as explicit reasons in decision contexts.
-- Designed for ECOA, Title VII, and EU AI Act compliance.
+- Fast regex proximity detector catching protected attributes cited as explicit reasons in decision contexts
+- Covers ECOA, Title VII, EU AI Act compliance
 
 **Deep async** (`async_engines/fairness.py`):
-- Generates counterfactual name/pronoun/attribute swaps, re-evaluates the prompt, and computes the **counterfactual flip rate**.
-- Applies an LLM-judge bias rubric across multiple fairness dimensions.
+- Generates counterfactual name/pronoun/attribute swaps and computes the **counterfactual flip rate**
+- Applies an LLM-judge bias rubric across multiple fairness dimensions
 
 ---
 
-### 13. Unified Sensitive Data Protection
+### 16. Unified Sensitive Data Protection
 
-**Single source of truth** (`backend/shared/sensitive_terms.py`): A shared taxonomy imported by both the PII detector and the authorization checker.
+**Single source of truth** (`backend/shared/sensitive_terms.py`): Imported by PII detector, authorization checker, and session accumulator.
 
 | Category | Examples |
 |---|---|
 | Financial | Credit card numbers, CVV, UPI IDs, IFSC codes, bank account numbers |
-| Government IDs | PAN, Aadhaar, Passport, Driver's License, SSN |
-| HR Records | Salary, employment status, performance ratings |
-| Medical | Diagnoses, prescriptions, health conditions |
-| Account Credentials | Passwords, API keys, tokens |
-| Fail-cautious Safety Net | Third-party detail-seeking language ("give me / show me details about [person]") |
-
-The `_VALUE_PATTERNS` dictionary of compiled regex patterns is also used by the session accumulator's entity-reconstruction check — a single definition is used system-wide.
+| Government IDs | PAN, Aadhaar, Passport, Driver's License, SSN, GSTIN |
+| HR Records | Salary, CTC, compensation, employment status, performance ratings |
+| Medical | Diagnoses, prescriptions, health conditions, lab results |
+| Credentials | Passwords, API keys, tokens, private keys |
+| Fail-cautious Net | Third-party detail-seeking language ("give me / show me details about [person]") |
 
 ---
 
-## 🖥️ Streamlit Dashboard — 7 Tabs
+## Streamlit Dashboard -- 7 Tabs
 
-The dashboard at **http://localhost:8501** provides a comprehensive operations interface for the governance platform.
+The dashboard at **http://localhost:8501** provides a comprehensive operations interface.
 
 ### Sidebar
-- **🟢 Backend Connected** / **🔴 Backend Offline** status pill (15-second cached health check).
-- Configurable caller context: User ID, Role, Department, Application, Data Classification, API Key.
-- **Live Session Risk Monitor** — polls `GET /v1/session/{session_id}` every 10 seconds to display EWMA score, peak score, session risk, band, turn count, and contamination status.
+- **Backend Connected / Backend Offline** status pill (15-second cached health check)
+- Configurable caller context: User ID, Role, Department, Application, Data Classification, API Key
+- **Live Session Risk Monitor** -- polls `GET /v1/session/{session_id}` every 10 seconds
 
-### Tab 1 — 💬 Governance Chatbot
-Interactive chat with real-time governance. Before first message: a welcome hero card explains the 7-stage pipeline. Each response shows:
+### Tab 1 -- Governance Chatbot
+Interactive chat with real-time governance. Each response shows:
 - Decision badge (ALLOW / MODIFY / BLOCK / HUMAN_REVIEW / REROUTE)
 - Risk score and session risk band
 - Per-detector scores sorted by risk descending
 - Policy evidence (regulatory citations)
 - Async job status
 
-### Tab 2 — 🔬 Advanced Inspector
-Slow-path LLM analysis of any prompt/response pair. Returns applicable policy, evidence references, detected risk level, required controls, and recommendation. Never enforces — the hot path enforces.
+### Tab 2 -- Advanced Inspector
+Slow-path LLM analysis. Returns applicable policy, evidence references, detected risk, required controls, and recommendation.
 
-### Tab 3 — 📊 Platform Metrics (Full Analytics Dashboard)
-Powered by the new `/v1/metrics/rich` endpoint with interactive Plotly charts:
+### Tab 3 -- Platform Metrics
+Powered by `/v1/metrics/rich` with interactive Plotly charts:
 - **KPI row**: Total Requests, Blocked, Modified, Human Review, Allowed, Avg Latency
-- **Decision Distribution** — colour-coded donut chart
-- **Risk Distribution** — histogram (Low / Medium / High buckets)
-- **Latency Trend** — line chart of last 20 requests
-- **Risk Score Trend** — line chart of last 20 requests
-- **Detector Fire Rate** table — per-detector fires, totals, and rate
-- **Blocked by Policy Rule** table — which rules are most active
+- **Decision Distribution** -- colour-coded donut chart
+- **Risk Distribution** -- histogram (Low / Medium / High)
+- **Latency Trend** and **Risk Score Trend** -- line charts
+- **Detector Fire Rate** and **Blocked by Policy Rule** tables
 
-### Tab 4 — 📜 Policy Rules
-Loaded YAML policy rules in a structured interactive view:
-- Action count summary badges at the top
-- Per-rule expanders showing: action badge, target detector/condition, threshold, rationale, scope
-- Raw condition JSON rendered inline (no nested expanders)
-- Handles all condition formats: detector scores, risk thresholds, data classification, application scoping, signal/value operators
+### Tab 4 -- Policy Rules
+Loaded YAML policy rules in a structured interactive view with action count summary badges and per-rule expanders.
 
-### Tab 5 — ⚖️ Review & Auto-Tuning
-The most interactive tab — two sections:
+### Tab 5 -- Review & Auto-Tuning
 
 **Self-Governing Threshold Auto-Tuner:**
-- ASCII flow diagram explaining how reviewer overrides connect to YAML patches
-- **🔍 Run Tuning Analysis (Dry Run)** — preview NUDGE / ESCALATE / HOLD decisions
-- **⚡ Apply Decisions** — write threshold changes to policy YAML files
-- **🧪 Seed Demo Review History** — populate 25 realistic review records showing all three patterns (results card stays visible permanently — no flash)
-- Decisions table sorted: ESCALATE → NUDGE → HOLD → INSUFFICIENT DATA
-- Reasoning cards for each actionable rule
+- Run Tuning Analysis (Dry Run) -- preview NUDGE / ESCALATE / HOLD
+- Apply Decisions -- write threshold changes to policy YAML files
+- Seed Demo Review History -- populate 25 realistic review records
 - Tuning audit changelog from `tuning_history` DB table
 
 **Human Review Queue:**
-- All pending `HUMAN_REVIEW` items with risk score colour coding
-- Per-item: request ID, policy rule, risk score, reason, timestamp
-- Resolve controls: Reviewer ID, Action selector (BLOCK/ALLOW/MODIFY/REROUTE), Notes
-- Resolving with a different action than the original automatically feeds the override into the auto-tuner
+- All pending HUMAN_REVIEW items with risk score colour coding
+- Resolve controls: Reviewer ID, Action selector, Notes
 
-### Tab 6 — 🧠 Ask ControlPlane (RAG)
-Compliance Q&A assistant with 4 quick-launch example chips:
-- 📋 PII policy for HR
-- ⚖️ GDPR Article 22
-- 🛑 Recent BLOCK events
-- 🏥 HIPAA data rules
+### Tab 6 -- Ask ControlPlane (RAG)
+Compliance Q&A assistant with 4 quick-launch chips:
+- PII policy for HR
+- GDPR Article 22
+- Recent BLOCK events
+- HIPAA data rules
 
-Admin reindex function in a collapsed expander.
-
-### Tab 7 — 🔁 RLHF Monitor
-- **Stats banner**: Total Pairs, Labeled, Unlabeled, Label Coverage %, Sampling Rate
-- **Label coverage progress bar**
-- **⚡ Generate & Judge Preference Pair On-Demand**: Enter a prompt, select domain category, generate dual-model responses and LLM judgment instantly
-- **Pairs Explorer**: Searchable/filterable table of all collected pairs (by prompt keyword, by category)
-- Export-ready status indicator per pair
+### Tab 7 -- RLHF Monitor
+- **Stats banner**: Total Pairs, Labeled, Unlabeled, Label Coverage, Sampling Rate
+- **Generate & Judge Preference Pair On-Demand**: Enter a prompt, select domain, generate dual-model responses and LLM judgment
+- **Pairs Explorer**: Searchable/filterable table
 
 ---
 
-## 🧪 Testing & Evaluation Harness
+## Testing & Evaluation Harness
 
-### Full Automated Test Suite
+### Full Test Suite
 
 ```powershell
 pytest -q
-# Expected: 191 passed, 4 skipped across 19 test modules
+# Skip slow tests:
+pytest -q -m "not slow"
 ```
 
-| Test Module | What is Tested | Key Scenarios |
-|---|---|---|
-| `test_golden_path.py` | End-to-end HR salary violation + parallel hot-path + risk fusion | Full pipeline integration |
-| `test_sensitive_data_coverage.py` | Credit card, CVV, PAN, Aadhaar, passport, medical, injection rephrasings | 19 detection scenarios |
-| `test_agent_governance.py` | Tool governance: refund tiers, PII deletions, session risk carryover | 13 agentic scenarios |
-| `test_audit_integrity.py` | Hash chains, Merkle proofs, naive & sophisticated tamper detection | 14 tamper cases |
-| `test_rag.py` | Policy RAG, chunking, vector store fallback, grounding, Ask ControlPlane | 32 RAG cases |
-| `test_session_accumulator.py` | Dual-signal math, entity reconstruction, contamination, Redis fallback, config loading | 25+ accumulator cases |
-| `test_hallucination_bias.py` | Hot-path & async hallucination and counterfactual fairness engines | Deep analysis tests |
-| `test_model_backend.py` | Lazy model loader, cache behaviour, grounding RAG integration | Model loading tests |
-| `test_rlhf_integration.py` | Preference pair collection, category validation, DPO export, LLM judge | Full RLHF pipeline |
-| `test_llm_client.py` | Groq client evidence-block injection hardening, citation verification, extractive fallback | LLM safety tests |
-| `test_groq_llm_client.py` | Ask ControlPlane Groq integration, graceful degradation | Integration tests |
-| `test_fast_lane.py` | 250ms timeout fail-open, webhook RETRACT, high-risk correction | Fast-lane tests |
-| `test_accumulator_calibration_integrity.py` | Peak-dilution guarantee (calibration artifact or inline Option-B math) | Math correctness |
-| `test_ml_pipeline.py` | ML training pipeline stubs & data utilities | ML pipeline tests |
-| `test_governance.py` | PII detection, redaction escalation, injection defence, audit privacy | Core governance |
-| `test_policy_engine.py` | Multi-file YAML policy precedence, priority resolution | Policy tests |
-| `test_async_service.py` | Async analytics engine workflow and background consumers | Async pipeline |
-| `test_gateway_api.py` | FastAPI HTTP client integration & redacted audit verification | API integration |
-| `test_paraphrase_consistency.py` | Paraphrase attack detection consistency | Robustness tests |
+| Test Module | What is Tested |
+|---|---|
+| `test_golden_path.py` | End-to-end HR salary violation + parallel hot-path |
+| `test_governance.py` | PII detection, redaction escalation, injection defence |
+| `test_sensitive_data_coverage.py` | 19 detection scenarios (card, CVV, PAN, Aadhaar, passport...) |
+| `test_agent_governance.py` | Tool governance: refund tiers, PII deletions, session risk carryover |
+| `test_audit_integrity.py` | Hash chains, Merkle proofs, naive & sophisticated tamper detection (14 cases) |
+| `test_rag.py` | Policy RAG, chunking, vector store fallback, grounding, Ask ControlPlane (32 cases) |
+| `test_session_accumulator.py` | Dual-signal math, entity reconstruction, contamination, Redis fallback (25+ cases) |
+| `test_hallucination_bias.py` | Hot-path & async hallucination, counterfactual fairness |
+| `test_model_backend.py` | Lazy model loader, cache behaviour |
+| `test_rlhf_integration.py` | Preference pair collection, category validation, DPO export, LLM judge |
+| `test_llm_client.py` | Groq client injection-hardening, citation verification, extractive fallback |
+| `test_groq_llm_client.py` | Ask ControlPlane Groq integration, graceful degradation |
+| `test_fast_lane.py` | 250ms timeout fail-open, webhook RETRACT, high-risk correction |
+| `test_adversarial.py` | Prompt injection, session evasion, multi-turn attacks |
+| `test_multi_tenant.py` | Multi-tenant corpus isolation |
+| `test_observability.py` | Prometheus metrics, OTel tracing |
+| `test_performance.py` | Sub-50ms hot-path latency benchmarks |
+| `test_reliability.py` | Circuit breaker, retry, graceful degradation |
+| `test_scalability.py` | Concurrent request handling |
+| `test_security.py` | API key auth, rate limiting, security headers |
+| `test_prompt_registry.py` | Semver-versioned prompt template registry |
+| `test_ml_pipeline.py` | ML training pipeline stubs & data utilities |
+| `test_policy_engine.py` | Multi-file YAML policy precedence, priority resolution |
+| `test_async_service.py` | Async analytics engine workflow |
+| `test_gateway_api.py` | FastAPI HTTP client integration |
+| `test_paraphrase_consistency.py` | Paraphrase attack detection consistency |
+| `test_accumulator_calibration_integrity.py` | Peak-dilution mathematical guarantee |
 
 ### RAG Evaluation Harness
 
@@ -824,32 +1041,81 @@ Total RAG Eval Score:                    12/12 passed (100%)
 
 ---
 
-## 🎬 Runnable Demonstrations
+## Runnable Demonstrations
 
 ```powershell
-# 1. HR Golden Path — salary data access → automatic BLOCK
+# 1. HR Golden Path -- salary data access -> automatic BLOCK
 python scripts/run_golden_path.py
 
-# 2. Agentic Tool-Call Governance — 8 scenarios: refund tiers, email, delete, session risk
+# 2. Agentic Tool-Call Governance -- 8 scenarios: refund tiers, email, delete, session risk
 python scripts/run_agent_governance_demo.py
 
-# 3. Tamper-Evident Merkle Audit — 3 Acts: clean → naive tamper → rechaining attack
+# 3. Tamper-Evident Merkle Audit -- 3 Acts: clean -> naive tamper -> rechaining attack
 python scripts/run_audit_integrity_demo.py
 
-# 4. Session Accumulator Demo — multi-turn risk memory
+# 4. Session Accumulator Demo -- multi-turn risk memory
 python demo_session_persistence.py
 
 # 5. RAG Capability Evaluation
 python -m rag.evaluation
+
+# 6. RAG Triad CI Evaluation
+python scripts/eval_rag_triad.py
 ```
 
 ---
 
-## 📚 Research Grounding & Standards Compliance
+## Deployment
+
+### Option A: Local (PowerShell)
+
+```powershell
+$env:GROQ_API_KEY = "your-key"
+$env:GROQ_MODEL = "openai/gpt-oss-120b"
+$env:CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED = "true"
+$env:CONTROLPLANE_API_KEYS = "your-api-key-here"
+
+# Terminal 1 -- Backend
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2 -- Frontend
+python -m streamlit run frontend/streamlit_app.py --server.port 8501 --server.headless true
+```
+
+Or use the one-command launcher: `.\start.ps1`
+
+### Option B: Docker Compose
+
+```powershell
+docker compose up --build
+```
+
+The `docker-compose.yml` defines:
+- `controlplane-api` (port 8000): FastAPI backend with SQLite volume mount
+- `controlplane-ui` (port 8501): Streamlit UI connecting to the API service
+- Named volume `controlplane_data` for persistent audit DB
+- Health checks on both services (30s interval, 60s start period)
+
+### Option C: Kubernetes
+
+```powershell
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/secrets.yaml
+kubectl apply -f k8s/pvc.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/hpa.yaml
+```
+
+The HPA scales from 2 to 10 replicas when CPU exceeds 70%.
+
+---
+
+## Research Grounding & Standards Compliance
 
 | Methodology / Principle | Reference / Standard | System Implementation |
 |---|---|---|
-| **AI Risk Management Framework** | NIST AI RMF 1.0 (Govern, Map, Measure, Manage) | Multi-layer risk fusion, context enrichment, and complete audit trail |
+| **AI Risk Management Framework** | NIST AI RMF 1.0 (Govern, Map, Measure, Manage) | Multi-layer risk fusion, context enrichment, complete audit trail |
 | **AI Management System** | ISO/IEC 42001:2023 | Programmatic policy enforcement and human-in-the-loop review queues |
 | **EU AI Act Transparency & High-Risk** | Regulation (EU) 2024/1689 (Articles 50 & Annex III) | Policy RAG corpus, hot-path bias tripwire, counterfactual fairness probe |
 | **Faithfulness & NLI Grounding** | RAGAS; BEACON (arXiv:2606.07528); Vectara HHEM | Claim decomposition, DeBERTa cross-encoder NLI, SelfCheckGPT resampling |
@@ -859,10 +1125,12 @@ python -m rag.evaluation
 | **RLHF / DPO Alignment** | Rafailov et al. (arXiv:2305.18290); TRL library | Preference pair collection, LLM-as-judge labelling, per-category DPO fine-tuning |
 | **Self-Governing Systems** | Control theory feedback loops; PID control principles | Override-rate-driven threshold auto-tuning with structural safety ceiling |
 | **Session Risk** | EWMA + peak-with-decay dual-signal design | Cross-turn risk accumulation catching session evasion patterns |
+| **Continuous Learning** | Online learning theory; hard negative mining | Production traffic -> training signal -> calibration without retraining cycles |
+| **Context-Aware RBAC** | NIST SP 800-207 Zero Trust; ABAC standards | Two-layer role + department permission resolution with OR merge |
 
 ---
 
-## ⚙️ Environment Variables
+## Environment Variables
 
 ### Core Backend
 
@@ -872,65 +1140,125 @@ python -m rag.evaluation
 | `CONTROLPLANE_LOG_LEVEL` | `INFO` | Logging level |
 | `CONTROLPLANE_ASYNC_DELAY_MS` | `50` | Artificial async delay (dev/test) |
 | `CONTROLPLANE_POLICIES_DIR` | `policies/` | YAML policy files directory |
-| `CONTROLPLANE_AUDIT_HASH_KEY` | `local-prototype-not-a-secret` | HMAC key for audit privacy — **change in production** |
+| `CONTROLPLANE_AUDIT_HASH_KEY` | `local-prototype-not-a-secret` | HMAC key -- **change in production** |
 | `CONTROLPLANE_MAX_PROMPT_CHARS` | `12000` | Prompt length limit |
-| `CONTROLPLANE_API_KEY` | `demo-key-001` | API key for gateway authentication |
+| `CONTROLPLANE_API_KEYS` | *(demo keys)* | Comma-separated valid API keys |
+| `CONTROLPLANE_ADMIN_KEYS` | *(demo key)* | Comma-separated admin keys |
+| `CONTROLPLANE_CORS_ORIGINS` | `http://localhost:8501` | Comma-separated CORS allowed origins |
+| `CONTROLPLANE_RATE_LIMIT_GOVERN` | `60` | Requests/minute for `/v1/govern` and `/v1/chat` |
+| `CONTROLPLANE_RATE_LIMIT_DEFAULT` | `120` | Requests/minute for all other endpoints |
 
 ### Session Accumulator
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `CONTROLPLANE_SESSION_ACCUMULATOR_ENABLED` | `false` | Enable cross-turn session risk tracking |
-| `CONTROLPLANE_SESSION_ACCUMULATOR_CONFIG` | — | Path to `calibration.json` (alpha, peak_decay, thresholds) |
-| `CONTROLPLANE_SESSION_STORE` | — | Redis URL for multi-worker deployments (e.g. `redis://localhost:6379`) |
+| `CONTROLPLANE_SESSION_ACCUMULATOR_CONFIG` | -- | Path to `calibration.json` |
+| `CONTROLPLANE_SESSION_STORE` | -- | Redis URL for multi-worker deployments |
+| `CONTROLPLANE_SESSION_TTL_HOURS` | `24` | Session TTL before vacuum |
 
-### ML Model Paths (all optional — detectors fall back gracefully)
+### Scalability
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CONTROLPLANE_MODEL_GROUNDING` | — | Path to NLI grounding model |
-| `CONTROLPLANE_MODEL_FAIRNESS` | — | Path to fairness model |
+| `CONTROLPLANE_ASYNC_QUEUE_SIZE` | `500` | Max buffered background tasks |
+| `CONTROLPLANE_METRICS_CACHE_TTL_S` | `60` | Seconds to cache metrics responses |
+
+### Groq LLM
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GROQ_API_KEY` | -- | Groq API key |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model name |
+| `GROQ_MAX_TOKENS` | `1024` | Max tokens per LLM completion |
+| `GROQ_TEMPERATURE` | `0.3` | LLM temperature |
+
+### Async LLM Judge
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CP_JUDGE_PROVIDER` | `mock` | LLM judge provider: `groq`, `openai`, `anthropic`, `mock` |
+| `CP_JUDGE_MODEL` | `llama3-8b-8192` | Model for LLM judge |
+| `CONTROLPLANE_ASYNC_LLM_RISK_THRESHOLD` | `0.20` | Risk threshold for 100% async LLM analysis |
+| `CONTROLPLANE_ASYNC_LLM_SAMPLE_RATE` | `0.05` | Fraction of benign requests sampled for drift monitoring |
 
 ### RAG
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RAG_EMBEDDING_BACKEND` | `tfidf_lsa` | `tfidf_lsa` (zero-dependency) or `sentence_transformers` |
+| `RAG_EMBEDDING_BACKEND` | `tfidf_lsa` | `tfidf_lsa` or `sentence_transformers` |
 | `RAG_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-Transformers model name |
-| `RAG_EMBEDDING_DIMS` | `128` | Embedding dimensionality |
 | `RAG_VECTOR_STORE_DIR` | `rag_store/` | ChromaDB / NumPy store location |
-| `RAG_CORPUS_DIR` | `rag/corpus/` | Policy corpus directory |
-| `RAG_CHUNK_SIZE_CHARS` | `800` | Chunking size |
-| `RAG_CHUNK_OVERLAP_CHARS` | `120` | Chunking overlap |
 | `RAG_TOP_K` | `5` | Retrieved chunks per query |
-| `RAG_POLICY_THRESHOLD` | `0.20` | Minimum similarity score for policy retrieval |
-| `RAG_GROUNDING_THRESHOLD` | `0.28` | Minimum similarity score for grounding checks |
+| `RAG_POLICY_THRESHOLD` | `0.20` | Minimum similarity for policy retrieval |
+| `RAG_GROUNDING_THRESHOLD` | `0.28` | Minimum similarity for grounding checks |
 | `RAG_HOT_PATH_BUDGET_MS` | `40` | Max latency budget for Policy RAG on hot path |
 | `RAG_GENERATION_ENABLED` | `true` | Enable Groq LLM synthesis in Ask ControlPlane |
-| `GROQ_API_KEY` | — | Groq API key for Ask ControlPlane, Advanced Inspector, RLHF judging |
-| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model name |
-| `GROQ_MAX_TOKENS` | `1024` | Max tokens per LLM completion |
-| `GROQ_TEMPERATURE` | `0.3` | LLM temperature |
+| `GROQ_API_KEY` | -- | Groq API key for RAG generation |
 
 ### RLHF
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RLHF_STORAGE_BACKEND` | `json` | `json` (active) or `sqlite` (ready, flip to activate) |
-| `CP_JUDGE_PROVIDER` | `mock` | LLM judge provider: `groq`, `mock`, `openai`, `anthropic` |
+| `RLHF_STORAGE_BACKEND` | `json` | `json` (active) or `sqlite` (drop-in ready) |
+| `RLHF_SAMPLE_ALL` | `false` | Sample every request (not 1-in-N) |
+
+### Observability
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONTROLPLANE_JSON_LOGS` | `false` | Structured JSON log output (for ELK/Datadog/GCP) |
+| `CONTROLPLANE_OTLP_ENDPOINT` | -- | OTLP endpoint for OTel trace export |
+| `CONTROLPLANE_OTEL_SERVICE_NAME` | `controlplane-api` | Service name in traces and logs |
 
 ### Frontend
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `CONTROLPLANE_API_URL` | `http://127.0.0.1:8000` | Backend URL for Streamlit frontend |
-| `CONTROLPLANE_API_KEY` | `demo-key-001` | API key for Streamlit → backend calls |
+| `CONTROLPLANE_API_KEY` | `demo-key-001` | API key for Streamlit -> backend calls |
 
 ---
 
-## 📄 License & Attribution
+## CI/CD Pipeline
 
-Built for the **Accenture Innovation Challenge 2026 (Track 1)**.  
+The GitHub Actions CI (`.github/workflows/ci.yml`) runs on every push and PR to `main`:
+
+```
+push/PR to main
+  |
+  +-- Job 1: Lint (ruff + mypy)
+  |   +-- ruff check backend/ tests/ --output-format=github
+  |   +-- mypy backend/ (advisory, does not fail pipeline)
+  |
+  +-- Job 2: Test (requires lint to pass)
+  |   +-- Install requirements.txt
+  |   +-- pytest tests/ -q --tb=short -m "not slow"
+  |   +-- Upload junit XML artifact
+  |
+  +-- Job 3: Security Audit (parallel with Test)
+  |   +-- pip-audit -r requirements.txt
+  |   +-- Upload audit report (continue-on-error)
+  |
+  +-- Job 4: Docker Build (requires Test to pass)
+      +-- docker/setup-buildx-action@v3
+      +-- Build image (no push on PRs, push on main merges)
+```
+
+All test environment variables are set in the workflow:
+```yaml
+CONTROLPLANE_API_KEYS: "demo-key-001,demo-key-002,test-key,ci-test-key"
+RAG_EMBEDDING_BACKEND: sentence_transformers
+RAG_RERANK_ENABLED: "true"
+RAG_NLI_ENABLED: "true"
+RAG_BM25_ENABLED: "true"
+```
+
+---
+
+## License & Attribution
+
+Built for the **Accenture Innovation Challenge 2026 (Track 1)**.
 All intellectual property and architecture designed for enterprise AI safety, transparency, and governance compliance.
 
 > *"The same governance principle ControlPlane.ai applies to AI systems, it applies to itself."*
