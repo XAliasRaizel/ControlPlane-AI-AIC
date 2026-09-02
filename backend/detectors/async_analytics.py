@@ -193,7 +193,7 @@ class GroundingEngineDetector(BaseDetector):
         rag_label = "INSUFFICIENT_EVIDENCE"
         rag_evidence = []
 
-        # RAG-based NLI claim verification (existing pipeline)
+        rag_context = ""
         try:
             from rag.grounding.grounding_checker import check_grounding
             report = check_grounding(request.response, response_id=request.request_id)
@@ -203,12 +203,22 @@ class GroundingEngineDetector(BaseDetector):
                 f"{c.status}: \"{c.claim[:80]}\"" for c in report.claims if c.status != "SUPPORTED"
             ] or ["All extracted claims supported by internal knowledge base"]
             rag_confidence = 0.75 if report.claims else 0.5
+
+            # Aggregate retrieved RAG evidence chunks to ground the LLM judge
+            rag_chunks = []
+            for c in report.claims:
+                for chunk in getattr(c, "evidence", []):
+                    text = getattr(chunk, "text", str(chunk))
+                    if text and text not in rag_chunks:
+                        rag_chunks.append(text)
+            if rag_chunks:
+                rag_context = "\n---\n".join(rag_chunks[:4])
         except Exception as exc:
             rag_evidence = [f"Grounding RAG unavailable: {exc}"]
             rag_score = 0.0
             rag_confidence = 0.3
 
-        # LLM-as-judge fusion: provides semantic hallucination verdict independent of RAG.
+        # LLM-as-judge fusion: evaluates response grounded against retrieved RAG context.
         # Fused score = RAG_NLI * 0.6 + LLM_judge * 0.4 for ensemble AUROC improvement.
         llm_score = None
         llm_evidence = []
@@ -218,7 +228,7 @@ class GroundingEngineDetector(BaseDetector):
                 llm_judge.judge_grounding,
                 request.prompt,
                 request.response,
-                "",
+                rag_context,
             )
             if not verdict.degraded:
                 # judge_grounding returns score=0.9 for low risk, 0.15 for high risk
