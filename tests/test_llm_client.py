@@ -131,7 +131,7 @@ class TestProviderChainFailover(unittest.TestCase):
             return "should not be called"
 
         client = _client(groq_fn=tracking_groq, provider="auto", api_key=None)
-        result = client.generate("sys", "q", ["evidence"])
+        client.generate("sys", "q", ["evidence"])
         self.assertNotIn("groq", call_log)
 
     def test_groq_provider_with_no_key_returns_extractive(self):
@@ -286,7 +286,6 @@ class TestTokenBudget(unittest.TestCase):
 
     def test_usage_store_record_and_query(self):
         from backend.app.llm.token_budget import TokenUsageStore
-        import tempfile
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp.close()
         db_path = tmp.name
@@ -308,7 +307,6 @@ class TestTokenBudget(unittest.TestCase):
 
     def test_budget_check_under_limit(self):
         from backend.app.llm.token_budget import TokenUsageStore
-        import tempfile
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp.close()
         db_path = tmp.name

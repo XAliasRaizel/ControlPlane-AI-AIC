@@ -93,8 +93,10 @@ class TestThreadLocalPool:
 
         t1 = threading.Thread(target=grab_conn, args=("t1",))
         t2 = threading.Thread(target=grab_conn, args=("t2",))
-        t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         assert connections["t1"] is not connections["t2"], \
             "Each thread should get its own connection"
@@ -116,8 +118,10 @@ class TestThreadLocalPool:
                 errors.append((name, str(exc)))
 
         threads = [threading.Thread(target=read, args=(f"t{i}",)) for i in range(4)]
-        for t in threads: t.start()
-        for t in threads: t.join()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
         assert errors == [], f"Concurrent read errors: {errors}"
 

@@ -131,7 +131,7 @@ def _run_corrective_escalation(
             action="HUMAN_REVIEW",
             policy_id="async-escalation",
             reason=(
-                f"Async LLM analysis detected high risk after hot-path ALLOW: "
+                "Async LLM analysis detected high risk after hot-path ALLOW: "
                 + "; ".join(f"{name}={res['status']}(score={res.get('score', 0):.2f})" for name, res in flagged)
             ),
             request_id=request_id,

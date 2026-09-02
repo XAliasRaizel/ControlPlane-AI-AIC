@@ -110,7 +110,7 @@ def test_govern_p99_latency_under_10_concurrent():
         print(f"  10-concurrent govern p99={p99_val*1000:.1f}ms  (max: 5000ms)")
         assert p99_val < 5.0, (
             f"p99 latency {p99_val*1000:.1f}ms exceeds 5000ms SLA. "
-            f"All latencies: {[round(l*1000, 1) for l in latencies]}"
+            f"All latencies: {[round(lat*1000, 1) for lat in latencies]}"
         )
 
 
@@ -167,7 +167,7 @@ def test_metrics_endpoint_p99_under_100ms():
     print(f"  /metrics p99={p99_val*1000:.1f}ms  (max: 100ms)")
     assert p99_val < 0.100, (
         f"/metrics p99 {p99_val*1000:.1f}ms exceeds 100ms SLA. "
-        f"All: {[round(l*1000, 1) for l in latencies]}"
+        f"All: {[round(lat*1000, 1) for lat in latencies]}"
     )
 
 
@@ -189,5 +189,5 @@ def test_health_endpoint_under_50ms():
     print(f"  /health p99={p99_val*1000:.1f}ms  (max: 50ms)")
     assert p99_val < 0.050, (
         f"/health p99 {p99_val*1000:.1f}ms exceeds 50ms SLA. "
-        f"All: {[round(l*1000, 1) for l in latencies]}"
+        f"All: {[round(lat*1000, 1) for lat in latencies]}"
     )

@@ -29,7 +29,7 @@ class SensitiveQueryIntentDetector(BaseDetector):
         # This detector specifically catches the 8 missed sensitive prompts that have NO
         # keyword match in authorization/pii (e.g., "what does she make?").
         # If the semantic model fires (margin >= threshold), we flag it.
-        
+
         if fires:
             # We cap the score at 0.65 to mirror the "ambiguous/implicit request" level
             # from PII detector, since a semantic match on "tell me his SSN" is still

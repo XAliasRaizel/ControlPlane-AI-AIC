@@ -183,7 +183,6 @@ class TestRagConfigMultiTenant(unittest.TestCase):
         self.assertEqual(settings.default_tenant_id, "default")
 
     def test_multi_tenant_disabled_by_default(self):
-        import os
         from unittest.mock import patch
         from rag.config import RagSettings
         env = os.environ.copy()
@@ -193,7 +192,6 @@ class TestRagConfigMultiTenant(unittest.TestCase):
             self.assertFalse(settings.multi_tenant_enabled)
 
     def test_multi_tenant_enabled_via_env(self):
-        import os
         from unittest.mock import patch
         from rag.config import RagSettings
         with patch.dict(os.environ, {"RAG_MULTI_TENANT_ENABLED": "true"}):

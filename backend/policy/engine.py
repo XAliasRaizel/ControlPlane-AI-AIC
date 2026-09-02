@@ -8,7 +8,7 @@ class PolicyEngine:
 
     def evaluate(self, request: GovernanceRequest, risk: RiskAssessment, context: dict) -> PolicyMatch:
         detector_map = {d.detector_name: d for d in risk.detector_results}
-        
+
         # Section 8 precedence: application-scoped > department-scoped > global.
         def scope_priority(pset):
             scope = pset.get("scope", {})
@@ -23,12 +23,12 @@ class PolicyEngine:
                     return 1  # global (no scope restrictions)
                 return 0  # scoped but doesn't match this request
             return 1  # treat as global if scope is not a dict
-            
+
         # Filter to only matching policy sets, then sort by specificity
         applicable = [(scope_priority(ps), ps) for ps in self.loader.policy_sets]
         applicable = [(p, ps) for p, ps in applicable if p > 0]
         applicable.sort(key=lambda x: x[0], reverse=True)
-        
+
         for _, pset in applicable:
             # Sort rules top-to-bottom by priority desc
             rules = sorted(pset["rules"], key=lambda r: int(r.get("priority", 0)), reverse=True)
@@ -40,7 +40,7 @@ class PolicyEngine:
                         matched_condition=str(rule["when"]),
                         recommended_action=rule["action"]
                     )
-        
+
         return PolicyMatch(
             policy_id='default-allow',
             policy_name='global',

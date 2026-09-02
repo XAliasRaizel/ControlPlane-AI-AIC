@@ -282,7 +282,7 @@ def test_model_backend_lazy_imports_presidio():
 def test_consult_presidio_no_module_fallback(monkeypatch):
     import sys
     from backend.shared.model_backend import consult_presidio, _cache, _lock
-    
+
     # clear cache for test isolation
     with _lock:
         if "presidio::analyzer" in _cache:
@@ -290,31 +290,31 @@ def test_consult_presidio_no_module_fallback(monkeypatch):
 
     # Mock import failure
     monkeypatch.setitem(sys.modules, "presidio_analyzer", None)
-    
+
     res = consult_presidio("My email is bob@example.com")
     assert res == []
 
 
 def test_consult_presidio_success(monkeypatch):
     from backend.shared.model_backend import consult_presidio, _cache, _lock
-    
+
     # clear cache for test isolation
     with _lock:
         if "presidio::analyzer" in _cache:
             del _cache["presidio::analyzer"]
-            
+
     class FakeResult:
         def __init__(self, t): self.entity_type = t
-        
+
     class FakeAnalyzer:
         def analyze(self, text, language):
             return [FakeResult("EMAIL_ADDRESS"), FakeResult("PERSON")]
-            
+
     # We mock AnalyzerEngine directly inside model_backend's namespace is hard,
     # because it imports it inline. Better to just inject our mock into the cache directly!
     with _lock:
         _cache["presidio::analyzer"] = FakeAnalyzer()
-        
+
     res = consult_presidio("Email bob@example.com")
     assert res == ["EMAIL_ADDRESS", "PERSON"]
 

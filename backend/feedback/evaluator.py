@@ -148,7 +148,8 @@ def _store_override_pair(
         from rlhf.storage.categorize import assign_category
         from rlhf.storage.json_store import write_pair, update_label
         from rlhf.config import Category
-        import datetime, uuid
+        import datetime
+        import uuid
 
         # Generate an alternative response from the simulator.
         alt_response = llm_simulator.generate(prompt=prompt)

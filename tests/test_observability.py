@@ -84,8 +84,8 @@ def test_json_log_formatter():
 
 def test_govern_increments_prometheus_metrics():
     """Executing /v1/govern should observe latency and increment Prometheus counters."""
-    initial_metrics = client.get("/metrics").text
-    
+    client.get("/metrics")  # baseline request (not asserted; counter starts at 0)
+
     payload = {
         "user_id": "test-user-1",
         "prompt": "Hello, how can I access customer documentation?",
@@ -100,7 +100,7 @@ def test_govern_increments_prometheus_metrics():
     )
     assert response.status_code == 200
     assert response.headers.get("x-request-id") == "test-obs-001"
-    
+
     updated_metrics = client.get("/metrics").text
     assert "controlplane_govern_requests_total" in updated_metrics
 

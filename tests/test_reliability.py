@@ -200,7 +200,6 @@ class TestDatabaseRetry:
 
     def test_retry_succeeds_after_transient_lock(self, tmp_path):
         """Simulate an OperationalError on first call, success on second."""
-        import sqlite3
         from unittest.mock import patch
 
         # Create a real DB

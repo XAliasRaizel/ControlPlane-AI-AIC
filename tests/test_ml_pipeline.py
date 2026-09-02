@@ -134,7 +134,7 @@ class TestGroupAwareSplit(unittest.TestCase):
                 group_aware_split(df, text_col="text", check_skew=True, seed=7)
             except ValueError:
                 pass  # too few groups is fine — the skew check is secondary
-            skew_warnings = [w for w in caught if issubclass(w.category, UserWarning)
+            _skew_warnings = [w for w in caught if issubclass(w.category, UserWarning)
                              and "skew" in str(w.message).lower()]
             # Either a warning was raised, or the split failed on group count (both fine)
             # The important thing: no crash and the skew path is exercised
