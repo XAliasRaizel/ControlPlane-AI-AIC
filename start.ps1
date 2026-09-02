@@ -60,21 +60,19 @@ if (-not $env:GROQ_API_KEY -and (Test-Path "$PSScriptRoot\.env")) {
 }
 
 $pythonExe = 'python'
-if (Test-Path "$PSScriptRoot\.venv\Scripts\python.exe") {
-    $pythonExe = "$PSScriptRoot\.venv\Scripts\python.exe"
-} elseif (Test-Path "$PSScriptRoot\.ci_venv\Scripts\python.exe") {
-    $pythonExe = "$PSScriptRoot\.ci_venv\Scripts\python.exe"
-}
 
 # Free ports 8000 and 8501 if held by leftover processes
 function Stop-PortProcess([int]$port) {
-    $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-    foreach ($conn in $conns) {
-        if ($conn.OwningProcess -and $conn.OwningProcess -ne $PID) {
-            Write-Host "  Stopping leftover process on port $port (PID: $($conn.OwningProcess))..." -ForegroundColor DarkGray
-            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+    try {
+        $lines = netstat -ano | Select-String ":$port\s+.*LISTENING\s+(\d+)"
+        foreach ($line in $lines) {
+            $pidToKill = $line.Matches[0].Groups[1].Value
+            if ($pidToKill -and [int]$pidToKill -ne $PID) {
+                Write-Host "  Stopping leftover process on port $port (PID: $pidToKill)..." -ForegroundColor DarkGray
+                Stop-Process -Id [int]$pidToKill -Force -ErrorAction SilentlyContinue
+            }
         }
-    }
+    } catch {}
 }
 Stop-PortProcess 8000
 Stop-PortProcess 8501
