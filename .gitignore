@@ -27,8 +27,14 @@ data/fairness.jsonl
 
 # Dynamic RAG runtime indices
 rag_store/audit_*
+rag_store/*.sqlite3
+
+# Local artifacts & nested directories
+ControlPlane-AI-AIC/
+package-lock.json
 
 # RLHF exports
 rlhf/data/exports/
 rag_triad_results.json
+
 

@@ -25,6 +25,7 @@ async def process_async(
     request: GovernanceRequest,
     job_id: Optional[str] = None,
     hot_path_risk: Optional[float] = None,
+    hot_path_results: Optional[list] = None,
 ) -> dict:
     """Run every async-path detector concurrently and persist the result.
 
@@ -32,9 +33,18 @@ async def process_async(
     - risk >= CONTROLPLANE_ASYNC_LLM_RISK_THRESHOLD (default 0.20) → run 100% of LLM checks
     - risk < threshold → sample CONTROLPLANE_ASYNC_LLM_SAMPLE_RATE (default 5%) for drift monitoring
 
-    After analysis, corrective escalation: if any async engine returns score > 0.65
-    (HIGH/CRITICAL risk) for a request the hot path ALLOWed, auto-enqueues to Human
-    Review Queue and logs a warning for the SOC team.
+    After analysis:
+    1. Training Signal Collection: captures hot-path vs async disagreements for detector fine-tuning.
+    2. Corrective escalation: if any async engine returns score > 0.65 (HIGH/CRITICAL risk)
+       for a request the hot path ALLOWed, auto-enqueues to Human Review Queue.
+
+    Args:
+        request_id: Unique governance request ID.
+        request: The original GovernanceRequest.
+        job_id: Optional async job identifier.
+        hot_path_risk: The overall_risk score from synchronous hot path.
+        hot_path_results: Optional list of DetectorResult from the hot path.
+            When provided, disagreements are fed to the training signal collector.
     """
     from backend.async_pipeline.consumers import run_analytics_engines
     from backend.audit.store import Database
@@ -75,6 +85,14 @@ async def process_async(
             logger.warning("Could not persist FAILED status for %s: %s", effective_job_id, db_exc)
         raise
 
+    # --- Training signal collection: capture hot vs async disagreements ---
+    if hot_path_results:
+        try:
+            from backend.async_pipeline.training_signal_collector import collect_from_async_results
+            await collect_from_async_results(request, hot_path_results, analytics)
+        except Exception as exc:
+            logger.debug("Training signal collection suppressed: %s", exc)
+
     combined = {
         "request_id": request_id,
         "job_id": effective_job_id,
@@ -99,6 +117,7 @@ async def process_async(
     logger.info("Async processing complete for %s", request_id)
     return combined
 
+<<<<<<< Updated upstream
 
 def _run_corrective_escalation(
     request_id: str,
@@ -144,3 +163,4 @@ def _run_corrective_escalation(
         )
     except Exception as exc:
         logger.warning("Corrective escalation failed (non-blocking): %s", exc)
+
