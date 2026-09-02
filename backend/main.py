@@ -54,6 +54,7 @@ from rlhf.sampler import maybe_collect_pair
 from backend.shared.logging_config import configure_logging, request_id_var, trace_id_var
 from backend.shared.metrics import record_govern, refresh_dead_letter_count
 from backend.shared.tracing import configure_tracing, get_current_trace_id
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # Configure structured logging and OpenTelemetry tracing
 configure_logging(level=settings.log_level, json_logs=settings.json_logs)
@@ -401,7 +402,6 @@ async def prometheus_metrics():
     This endpoint is intentionally unauthenticated so Prometheus can scrape it
     without API key management. Protect via network policy / firewall in production.
     """
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
     from fastapi.responses import Response as FastAPIResponse
 
     # Refresh dead-letter count gauge before each scrape

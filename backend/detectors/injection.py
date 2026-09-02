@@ -13,6 +13,15 @@ from backend.detectors.base import BaseDetector, register
 from backend.shared.model_backend import consult
 
 
+# Homoglyph substitution map (Cyrillic/Greek confusables commonly used to evade keyword filters)
+_HOMOGLYPH_MAP = str.maketrans({
+    '\u0430': 'a', '\u0441': 'c', '\u0435': 'e', '\u043e': 'o',
+    '\u0440': 'p', '\u0445': 'x', '\u0443': 'y', '\u0456': 'i',
+    '\u0458': 'j', '\u0455': 's', '\u0410': 'A', '\u0421': 'C',
+    '\u0415': 'E', '\u041e': 'O', '\u0420': 'P', '\u0425': 'X',
+})
+
+
 @register
 class InjectionDetector(BaseDetector):
     name = "injection"
@@ -22,7 +31,7 @@ class InjectionDetector(BaseDetector):
     # Each pattern is a compiled regex for efficiency.
     _SIGNATURES = {
         "instruction_override": [
-            r"ignore\s+(?:all\s+)?previous\s+instructions?",
+            r"ignore\s+(?:all\s+)?(?:previous\s+|your\s+)?(?:instructions?|training|guidelines?|rules?)",
             r"disregard\s+(?:all\s+)?(?:previous|prior|your|above)\s+instructions?",
             r"disregard\s+what\s+you\s+were\s+told",
             r"forget\s+(?:your|all|previous|prior)\s+instructions?",
@@ -37,25 +46,26 @@ class InjectionDetector(BaseDetector):
             r"developer\s+message",
         ],
         "jailbreak": [
-            r"bypass\s+(?:safety|security|filter|content)",
+            r"bypass\s+(?:your\s+)?(?:safety|security|filter|content)",
             r"\bjailbreak\b",
-            r"disable\s+(?:your\s+)?(?:restrictions?|safety|filter|guardrails?)",
-            r"(?:no|remove|without)\s+(?:restrictions?|safety|filter|guardrails?|limitations?)",
+            r"disable\s+(?:your\s+)?(?:ethical\s+|safety\s+)?(?:restrictions?|safety|filter|guardrails?)",
+            r"(?:no|remove|without)\s+(?:restrictions?|safety|filter|guardrails?|limitations?|ethical\s+guidelines?)",
             r"developer\s+mode",
             r"(?:unlock|enable)\s+(?:unrestricted|unlimited|god)\s+mode",
             r"(?:DAN|do\s+anything\s+now)\b",
+            r"(?:maintenance\s+mode.*disable|grandmother\s+used\s+to\s+read)",
         ],
         "role_manipulation": [
             r"you\s+are\s+now\b",
-            r"act\s+as\s+(?:an?\s+)?(?:unrestricted|unfiltered|evil|malicious)",
-            r"pretend\s+(?:to\s+be|you\s+are)",
-            r"roleplay\s+as\s+(?:an?\s+)?(?:unrestricted|unfiltered)",
+            r"act\s+as\s+(?:if\s+you\s+are|an?\s+)?(?:unrestricted|unfiltered|evil|malicious)",
+            r"pretend\s+(?:to\s+be|you\s+are|you\s+have)",
+            r"roleplay\s+as\s+(?:an?\s+)?(?:\w+\s+)?(?:unrestricted|unfiltered|compliant)",
             r"from\s+now\s+on\s+you\s+(?:are|will|must)",
         ],
     }
 
     async def analyze(self, request: GovernanceRequest, context: dict) -> DetectorResult:
-        text = request.prompt.lower()
+        text = request.prompt.translate(_HOMOGLYPH_MAP).lower()
         evidence = []
         for category, patterns in self._SIGNATURES.items():
             for pattern in patterns:

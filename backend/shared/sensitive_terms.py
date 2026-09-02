@@ -69,6 +69,7 @@ CATEGORIES: list[SensitiveCategory] = [
             "aadhaar": r"\b\d{4}[ -]\d{4}[ -]\d{4}\b",
             "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
             "pan": r"\b[A-Z]{5}\d{4}[A-Z]\b",
+            "passport": r"\b[A-Z]\d{7,8}\b",
         },
         auth_permission="can_access_other_accounts",
     ),

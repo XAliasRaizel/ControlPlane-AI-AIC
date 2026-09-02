@@ -19,6 +19,7 @@ class SafetyDetector(BaseDetector):
         "hacking": [
             r"\b(?:hack|hacking|hacked|hacker|breach|exploit|sql\s+injection|crack\s+password|brute\s+force|steal\s+credentials|exfiltrate|break\s+into|penetrate\s+system|dump\s+database|rootkit|keylogger|phishing)\b",
             r"\b(?:bypass\s+security|unauthorized\s+access|steal\s+data|steal\s+account)\b",
+            r"(?:union\s+select|drop\s+table|insert\s+into\s+\w+|delete\s+from\s+\w+|exec\s*\(|xp_cmdshell|1\s*=\s*1|select\s+.*\s+from\s+\w+)",
         ],
         "data_theft": [
             r"\b(?:steal\s+account|steal\s+information|steal\s+records|extract\s+private|extract\s+confidential|leak\s+data|expose\s+private|expose\s+confidential)\b",
