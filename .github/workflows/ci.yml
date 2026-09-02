@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # ControlPlane.ai — GitHub Actions CI Pipeline
 # Triggers: push + PR to main
 # Jobs: lint | test | security | docker
@@ -88,7 +88,8 @@ jobs:
           RAG_NLI_ENABLED: "true"
           RAG_BM25_ENABLED: "true"
           RAG_MULTI_TENANT_ENABLED: "false"
-          CONTROLPLANE_API_KEYS: "ci-test-key"
+          CONTROLPLANE_API_KEYS: "demo-key-001,demo-key-002,test-key,ci-test-key"
+          CONTROLPLANE_ADMIN_KEYS: "admin-key-001"
           CONTROLPLANE_AUDIT_HASH_KEY: "ci-test-hash-key"
 
       - name: Upload test results
