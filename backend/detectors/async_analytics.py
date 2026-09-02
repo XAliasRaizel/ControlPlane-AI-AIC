@@ -252,10 +252,11 @@ class GroundingEngineDetector(BaseDetector):
             confidence = rag_confidence
 
         status = rag_label
-        if fused_score >= 0.7:
-            status = "HIGH"
-        elif fused_score >= 0.4:
-            status = "INSUFFICIENT_EVIDENCE"
+        if rag_label == "INSUFFICIENT_EVIDENCE":
+            if fused_score >= 0.7:
+                status = "HIGH"
+            elif fused_score >= 0.4:
+                status = "INSUFFICIENT_EVIDENCE"
 
         return DetectorResult(
             detector_name=self.name,

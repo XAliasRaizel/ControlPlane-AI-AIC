@@ -397,8 +397,14 @@ def reset_cache() -> None:
     """Clear all lazy-loaded models and caches (e.g. for testing or hot-reloading)."""
     with _lock:
         _cache.clear()
-    consult.cache_clear()
-    consult_presidio.cache_clear()
+    try:
+        consult.cache_clear()
+    except Exception:
+        pass
+    try:
+        _consult_presidio_sync.cache_clear()
+    except Exception:
+        pass
     try:
         _consult_sensitive_intent_sync.cache_clear()
     except Exception:

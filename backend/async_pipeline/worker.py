@@ -104,7 +104,7 @@ def _run_corrective_escalation(
     request_id: str,
     request: GovernanceRequest,
     analytics: dict,
-    hot_path_risk: float,
+    hot_path_risk: float | None = None,
 ) -> None:
     """Log to Human Review Queue when async LLM catches high-risk content the hot path missed."""
     HIGH_LABELS = {"HIGH", "CRITICAL", "BIASED", "INJECTION_DETECTED"}
@@ -117,7 +117,7 @@ def _run_corrective_escalation(
         and result.get("status") not in {"SKIPPED_MOCK_PROVIDER", "DEGRADED", "MODEL_ERROR", "NOT_APPLICABLE"}
     ]
 
-    if not flagged or hot_path_risk >= 0.70:
+    if not flagged or (hot_path_risk is not None and hot_path_risk >= 0.70):
         # Either nothing flagged, or the hot path already caught it — no escalation needed
         return
 
