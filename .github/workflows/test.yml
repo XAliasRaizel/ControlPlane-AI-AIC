@@ -30,7 +30,7 @@ jobs:
           RAG_RERANK_ENABLED: "true"
           RAG_NLI_ENABLED: "true"
           RAG_BM25_ENABLED: "true"
-          RAG_MULTI_TENANT_ENABLED: "true"
+          RAG_MULTI_TENANT_ENABLED: "false"
 
   rag-triad-eval:
     name: RAG Triad Quality Gate

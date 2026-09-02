@@ -4,7 +4,7 @@ so nothing is hard-coded through the rest of the rag/ package (Section 10).
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]  # repo root
@@ -103,8 +103,12 @@ class RagSettings:
     generation_enabled: bool = os.getenv("RAG_GENERATION_ENABLED", "true").lower() == "true"
 
     # --- multi-tenancy (Phase 3) ---
-    multi_tenant_enabled: bool = os.getenv("RAG_MULTI_TENANT_ENABLED", "false").lower() == "true"
-    default_tenant_id: str = os.getenv("RAG_DEFAULT_TENANT_ID", "default")
+    multi_tenant_enabled: bool = field(
+        default_factory=lambda: os.getenv("RAG_MULTI_TENANT_ENABLED", "false").lower() == "true"
+    )
+    default_tenant_id: str = field(
+        default_factory=lambda: os.getenv("RAG_DEFAULT_TENANT_ID", "default")
+    )
 
 
 rag_settings = RagSettings()
