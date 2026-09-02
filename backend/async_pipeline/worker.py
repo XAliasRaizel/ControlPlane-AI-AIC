@@ -117,7 +117,6 @@ async def process_async(
     logger.info("Async processing complete for %s", request_id)
     return combined
 
-<<<<<<< Updated upstream
 
 def _run_corrective_escalation(
     request_id: str,

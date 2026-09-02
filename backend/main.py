@@ -781,6 +781,7 @@ async def execute_governance(
     try:
         db.create_job(async_job_id, request_id)
         from backend.async_pipeline.publisher import publish_event
+        async_request = request
         # Include response in async analysis request so engines have full interaction context
         await publish_event(
             request_id,
