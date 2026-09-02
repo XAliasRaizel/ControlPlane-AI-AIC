@@ -30,3 +30,17 @@ slowapi>=0.1.9           # rate limiting middleware for FastAPI
 
 # Dashboard visualisation
 plotly
+
+# ===========================================================================
+# OBSERVABILITY (Phase 7)
+# ===========================================================================
+# Prometheus metrics endpoint
+prometheus_client>=0.20.0
+
+# OpenTelemetry — tracing (feature-flagged, zero cost when OTLP endpoint unset)
+opentelemetry-sdk>=1.24.0
+opentelemetry-instrumentation-fastapi>=0.45b0
+opentelemetry-exporter-otlp-proto-http>=1.24.0
+
+# Pin protobuf <7 to avoid OTel binary compatibility break (protobuf 7.x breaks otel-proto)
+protobuf>=5.0.0,<7.0.0

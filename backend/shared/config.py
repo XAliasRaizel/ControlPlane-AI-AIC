@@ -106,6 +106,21 @@ class Settings:
         default_factory=lambda: int(os.getenv("CONTROLPLANE_METRICS_CACHE_TTL_S", "60"))
     )
 
+    # --- Observability: Structured JSON logging ---
+    # Set CONTROLPLANE_JSON_LOGS=true in containers for machine-readable log streams.
+    json_logs: bool = field(
+        default_factory=lambda: os.getenv("CONTROLPLANE_JSON_LOGS", "false").lower() == "true"
+    )
+
+    # --- Observability: OpenTelemetry tracing ---
+    # CONTROLPLANE_OTLP_ENDPOINT: e.g. http://jaeger:4318/v1/traces  (empty = no-op)
+    otlp_endpoint: str = field(
+        default_factory=lambda: os.getenv("CONTROLPLANE_OTLP_ENDPOINT", "")
+    )
+    otel_service_name: str = field(
+        default_factory=lambda: os.getenv("CONTROLPLANE_OTEL_SERVICE_NAME", "controlplane-api")
+    )
+
     # Backward compat: single policy_path still works (points into policies_dir)
     @property
     def policy_path(self) -> str:

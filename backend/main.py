@@ -51,10 +51,17 @@ from backend.decision.engine import make_decision, sanitize_response
 from backend.agents.router import router as agent_router
 from rlhf.sampler import maybe_collect_pair
 
+from backend.shared.logging_config import configure_logging, request_id_var, trace_id_var
+from backend.shared.metrics import record_govern, refresh_dead_letter_count
+from backend.shared.tracing import configure_tracing, get_current_trace_id
 
-
-# ---------------------------------------------------------------------------
-# Async task queue — bounded asyncio.Queue drains BackgroundTasks to prevent
+# Configure structured logging and OpenTelemetry tracing
+configure_logging(level=settings.log_level, json_logs=settings.json_logs)
+configure_tracing(
+    service_name=settings.otel_service_name,
+    otlp_endpoint=settings.otlp_endpoint,
+)
+logger = logging.getLogger("controlplane.gateway")
 # unbounded memory growth under spike traffic.
 # ---------------------------------------------------------------------------
 class AsyncTaskQueue:
@@ -294,6 +301,39 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Inject request_id and trace_id into log contextvars and response headers.
+
+    Reads X-Request-ID header if provided (useful for distributed tracing);
+    otherwise generates a new UUID4. Sets X-Request-ID on the response so
+    clients can correlate logs.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        # Honour an upstream X-Request-ID (e.g. from an API gateway)
+        req_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        token_req = request_id_var.set(req_id)
+
+        # Propagate OTel trace_id into logs when a span is active
+        try:
+            from backend.shared.tracing import get_current_trace_id
+            trace_id = get_current_trace_id()
+        except Exception:
+            trace_id = "-"
+        token_trace = trace_id_var.set(trace_id)
+
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = req_id
+            return response
+        finally:
+            request_id_var.reset(token_req)
+            trace_id_var.reset(token_trace)
+
+
+app.add_middleware(RequestIDMiddleware)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: FastAPIRequest, exc: Exception):
     logger.error("Unhandled exception on %s: %s", request.url.path, exc, exc_info=True)
@@ -301,9 +341,6 @@ async def global_exception_handler(request: FastAPIRequest, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error. Check backend logs for details."},
     )
-
-logging.basicConfig(level=settings.log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("controlplane.gateway")
 
 db = Database(settings.db_path)
 review_queue = ReviewQueue(db=db)
@@ -355,6 +392,23 @@ async def health():
         "registered_detectors": list(DETECTOR_REGISTRY.keys()),
         "policy": policy_engine.summary().model_dump(),
     }
+
+
+@app.get("/metrics", tags=["observability"])
+async def prometheus_metrics():
+    """Prometheus metrics endpoint — returns text/plain exposition format.
+
+    This endpoint is intentionally unauthenticated so Prometheus can scrape it
+    without API key management. Protect via network policy / firewall in production.
+    """
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from fastapi.responses import Response as FastAPIResponse
+
+    # Refresh dead-letter count gauge before each scrape
+    refresh_dead_letter_count()
+
+    data = generate_latest()
+    return FastAPIResponse(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/v1/health/deep", tags=["health"])
@@ -643,6 +697,25 @@ async def execute_governance(
         risk.overall_risk,
         latency_ms,
         fingerprint(request.prompt),
+        extra={
+            "event": "GOVERN",
+            "request_id": request_id,
+            "decision": decision.action,
+            "risk_score": round(risk.overall_risk, 4),
+            "latency_ms": round(latency_ms, 2),
+            "policy_id": policy.policy_id if policy else "unknown",
+            "tenant_id": request.application_id or "default",
+            "detector_count": len(detector_results),
+            "session_id": request.session_id or "-",
+        },
+    )
+
+    # Prometheus instrumentation
+    record_govern(
+        decision=decision.action,
+        tenant_id=request.application_id or "default",
+        policy_id=policy.policy_id if policy else "unknown",
+        latency_seconds=latency_ms / 1000.0,
     )
 
     # --- Phase 9: Session telemetry + entity reconstruction hook ---
