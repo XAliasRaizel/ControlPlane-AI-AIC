@@ -34,6 +34,15 @@ ignore = [
     "F401",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# ML training scripts — allow ambiguous loop vars (l for label/loss) and unused intermediates
+"ml/scripts/*.py" = ["E741", "F841", "W293"]
+# RAG grounding/research — allow unused intermediates in complex NLI pipelines
+"rag/grounding/*.py" = ["F841"]
+"rag/policy/*.py" = ["F841"]
+# RLHF training — allow unused loop counters in evaluation harness
+"rlhf/training/*.py" = ["F841"]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

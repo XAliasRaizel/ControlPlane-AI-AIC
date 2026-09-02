@@ -39,6 +39,12 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
+try:
+    from datasets import load_dataset  # HuggingFace Datasets (optional heavy dep)
+except ImportError:
+    load_dataset = None  # type: ignore[assignment]
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -172,14 +178,14 @@ def load_scaled_safety_data(max_samples: int, smoke_test: bool) -> tuple[list, l
                     (df["obscene"] == 1) | (df["threat"] == 1) |
                     (df["insult"] == 1) | (df["identity_hate"] == 1)
                 ).astype(int)
-                
+
                 pos_df = df[df["is_toxic"] == 1]
                 neg_df = df[df["is_toxic"] == 0]
-                
+
                 cap = 15_000 if not smoke_test else 100
                 pos_sample = pos_df.sample(min(cap, len(pos_df)), random_state=42)
                 neg_sample = neg_df.sample(min(cap, len(neg_df)), random_state=42)
-                
+
                 for _, r in pos_sample.iterrows():
                     rows.append({"text": str(r["comment_text"]), "label": 1})
                 for _, r in neg_sample.iterrows():
@@ -258,15 +264,15 @@ def load_scaled_fairness_data(max_samples: int, smoke_test: bool) -> tuple[list,
                 chunks.append(chunk[["comment_text", "is_biased"]])
                 if len(chunks) * 50_000 >= 150_000:
                     break
-            
+
             df = pd.concat(chunks)
             pos_df = df[df["is_biased"] == 1]
             neg_df = df[df["is_biased"] == 0]
-            
+
             cap = 15_000 if not smoke_test else 100
             pos_sample = pos_df.sample(min(cap, len(pos_df)), random_state=42)
             neg_sample = neg_df.sample(min(cap, len(neg_df)), random_state=42)
-            
+
             for _, r in pos_sample.iterrows():
                 rows.append({"text": str(r["comment_text"]), "label": 1})
             for _, r in neg_sample.iterrows():
@@ -329,7 +335,7 @@ def train_classifier(task: str, cfg: dict, smoke_test: bool) -> None:
         "safety": load_scaled_safety_data,
         "fairness": load_scaled_fairness_data,
     }[task]
-    
+
     train_rows, eval_rows = loader(cfg["max_samples"], smoke_test)
     log.info("[%s] Merged Dataset -> Train: %d | Eval: %d", task, len(train_rows), len(eval_rows))
 
@@ -458,19 +464,19 @@ def calibrate_pii_and_sensitive_intent(smoke_test: bool) -> None:
         try:
             with open(KAGGLE_PII_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            
+
             for doc in data[:500]:
                 full_text = doc.get("full_text", "")
                 tokens = doc.get("tokens", [])
                 labels = doc.get("labels", [])
-                
+
                 # Extract sentences containing real student PII entities
                 for token, label in zip(tokens, labels):
                     if label.startswith("B-"):
                         entity_type = label.split("-")[1]
                         extra_pii_prompts.append(f"What is the student's {entity_type}?")
                         extra_pii_prompts.append(f"Give me the {entity_type} for {token}.")
-            
+
             log.info("    Extracted %d synthetic PII query patterns from Kaggle student data", len(extra_pii_prompts))
         except Exception as e:
             log.warning("    Kaggle PII extraction failed: %s", e)
