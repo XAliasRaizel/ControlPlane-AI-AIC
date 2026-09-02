@@ -479,7 +479,7 @@ def test_end_to_end_policy_rag_through_real_governance_flow():
     from rag.policy.policy_rag import get_policy_evidence
 
     req = GovernanceRequest(
-        user_id="test", user_role="employee", department="Sales",
+        user_id="test", user_role="employee", department="HR",
         application_id="hr-copilot", prompt="Give me Rahul's salary.",
         data_classification="HIGH",
     )

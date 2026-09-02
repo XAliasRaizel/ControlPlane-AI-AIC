@@ -91,8 +91,7 @@ _DEPARTMENT_PERMISSION_GRANTS: dict[str, dict[str, bool]] = {
         "can_access_medical_record": True,   # Medical dept can access patient records
     },
     "hr": {
-        "can_access_salary": True,            # HR dept can access salary data
-        "can_access_other_accounts": True,
+        "can_access_other_accounts": True,    # HR dept can access employee directory & accounts, but not individual salary without hr-manager role
     },
     "finance": {
         "can_access_bank_account": True,      # Finance dept can access financial records
@@ -105,7 +104,6 @@ _DEPARTMENT_PERMISSION_GRANTS: dict[str, dict[str, bool]] = {
         "can_perform_security_testing": True, # Security dept can test for injection
     },
     "payroll": {
-        "can_access_salary": True,
         "can_access_bank_account": True,
     },
 }
