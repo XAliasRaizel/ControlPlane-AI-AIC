@@ -24,3 +24,6 @@ rank_bm25>=0.2.2
 tenacity>=8.2.0          # exponential backoff retries for provider calls
 tiktoken>=0.7.0          # fast BPE token counting for cost budgets
 jinja2>=3.1.0            # versioned prompt template rendering
+
+# Security hardening dependencies (Phase 4)
+slowapi>=0.1.9           # rate limiting middleware for FastAPI

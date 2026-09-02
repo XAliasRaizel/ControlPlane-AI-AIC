@@ -6,6 +6,8 @@ Production LLM Gateway for ControlPlane.ai.
 Key guarantees:
   - Multi-provider failover: Groq -> Ollama (auto-detected from config).
   - Each provider call is wrapped with tenacity exponential backoff retry.
+  - Circuit breaker per provider: after 5 consecutive full-retry failures the
+    provider trips OPEN for 30 s and traffic immediately falls to the next one.
   - Evidence is wrapped in injection-shield delimiters before any LLM call.
   - Every [N] citation in the answer is range-checked after generation.
   - Token usage is counted (tiktoken) and persisted per call.
@@ -23,7 +25,36 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
+from backend.shared.circuit_breaker import CircuitBreaker, CircuitOpenError
+
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module-level circuit breakers (one per provider, shared across LLMClient
+# instances so a repeated failure from any caller trips the same breaker).
+# ---------------------------------------------------------------------------
+_groq_breaker = CircuitBreaker(
+    name="groq",
+    failure_threshold=5,
+    recovery_timeout_s=30.0,
+    half_open_max_calls=2,
+)
+_ollama_breaker = CircuitBreaker(
+    name="ollama",
+    failure_threshold=5,
+    recovery_timeout_s=30.0,
+    half_open_max_calls=2,
+)
+
+_PROVIDER_BREAKERS: dict[str, CircuitBreaker] = {
+    "groq": _groq_breaker,
+    "ollama": _ollama_breaker,
+}
+
+
+def get_provider_breaker(provider_name: str) -> CircuitBreaker | None:
+    """Return the shared circuit breaker for a provider (or None if unknown)."""
+    return _PROVIDER_BREAKERS.get(provider_name)
 
 
 @dataclass
@@ -174,7 +205,13 @@ def _call_ollama(
 
 
 class LLMClient:
-    """Production LLM gateway with multi-provider failover and retries."""
+    """Production LLM gateway with multi-provider failover, retries, and circuit breakers.
+
+    Architecture:
+      Tenacity retries (inner) — handle transient errors within a single provider
+      Circuit breaker (outer)  — trips OPEN after 5 consecutive full-retry failures;
+                                  fast-fails for 30 s, then probes with HALF_OPEN
+    """
 
     def __init__(
         self,
@@ -190,6 +227,9 @@ class LLMClient:
         track_usage: bool = True,
         department: str = "default",
         tenant_id: str = "default",
+        # Optional override circuit breakers (for tests)
+        groq_breaker: CircuitBreaker | None = None,
+        ollama_breaker: CircuitBreaker | None = None,
     ) -> None:
         self._api_key_getter = api_key_getter
         self.model = model
@@ -203,6 +243,11 @@ class LLMClient:
         self.department = department
         self.tenant_id = tenant_id
         self._groq_call_fn = groq_call_fn or _call_groq
+        # Use injected breakers (useful in tests) or fall back to module-level singletons
+        self._breakers: dict[str, CircuitBreaker] = {
+            "groq":   groq_breaker   or _groq_breaker,
+            "ollama": ollama_breaker or _ollama_breaker,
+        }
 
     def generate(
         self,
@@ -229,7 +274,7 @@ class LLMClient:
         last_error = "all_providers_failed"
         for prov in providers_to_try:
             try:
-                text, model_id = self._call_provider(
+                text, model_id = self._call_provider_with_breaker(
                     prov, system_prompt, user_message, api_key
                 )
                 if not text or not text.strip():
@@ -256,6 +301,12 @@ class LLMClient:
                     estimated_cost_usd=cost,
                 )
 
+            except CircuitOpenError as exc:
+                last_error = f"circuit_open:{prov}"
+                logger.warning(
+                    "Provider '%s' circuit is OPEN — skipping. %s", prov, exc
+                )
+                # Continue to next provider
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 logger.warning(
@@ -275,6 +326,28 @@ class LLMClient:
             chain.append("groq")
         chain.append("ollama")
         return chain
+
+    def _call_provider_with_breaker(
+        self,
+        provider_name: str,
+        system_prompt: str,
+        user_message: str,
+        api_key: Optional[str],
+    ) -> tuple[str, str]:
+        """Invoke _call_provider wrapped with the provider's circuit breaker.
+
+        The breaker sits *outside* the tenacity retry loop: it trips OPEN
+        after 5 consecutive full-retry failures (not single transient errors).
+        """
+        breaker = self._breakers.get(provider_name)
+        if breaker is None:
+            # Unknown provider — call directly without breaker
+            return self._call_provider(provider_name, system_prompt, user_message, api_key)
+
+        def _do():
+            return self._call_provider(provider_name, system_prompt, user_message, api_key)
+
+        return breaker.call(_do)
 
     def _call_provider(
         self,

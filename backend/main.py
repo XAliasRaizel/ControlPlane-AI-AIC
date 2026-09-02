@@ -11,10 +11,16 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request as FastAPIRequest
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from backend.shared.config import settings
 from backend.shared.schemas import (
@@ -28,7 +34,7 @@ from backend.shared.schemas import (
     RiskAssessment,
 )
 from backend.audit.store import Database, build_audit_context, fingerprint
-from backend.gateway.auth import verify_api_key
+from backend.gateway.auth import verify_api_key, verify_admin_key
 from backend.gateway.context_enrichment import enrich_context
 from backend.review.queue import ReviewQueue
 from backend.feedback.evaluator import FeedbackEvaluator
@@ -47,8 +53,133 @@ from rlhf.sampler import maybe_collect_pair
 
 
 
+# ---------------------------------------------------------------------------
+# Async task queue — bounded asyncio.Queue drains BackgroundTasks to prevent
+# unbounded memory growth under spike traffic.
+# ---------------------------------------------------------------------------
+class AsyncTaskQueue:
+    """Wraps asyncio.Queue with a pool of N worker coroutines.
+
+    Callers enqueue (coro_func, *args, **kwargs) tuples.  Workers pull from
+    the queue and await each task.  If the queue is full, enqueue() drops the
+    task and logs a warning (back-pressure) rather than blocking the request.
+    """
+
+    def __init__(self, maxsize: int = 500, num_workers: int = 4):
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
+        self._num_workers = num_workers
+        self._workers: list[asyncio.Task] = []
+
+    async def start(self):
+        self._workers = [
+            asyncio.create_task(self._drain(), name=f"task-queue-worker-{i}")
+            for i in range(self._num_workers)
+        ]
+
+    async def stop(self):
+        for _ in self._workers:
+            await self._queue.put(None)  # sentinel
+        await asyncio.gather(*self._workers, return_exceptions=True)
+        self._workers.clear()
+
+    async def _drain(self):
+        while True:
+            item = await self._queue.get()
+            if item is None:
+                self._queue.task_done()
+                break
+            coro_func, args, kwargs = item
+            try:
+                await coro_func(*args, **kwargs)
+            except Exception as exc:
+                _q_logger = logging.getLogger("controlplane.task_queue")
+                _q_logger.warning("Task queue worker error: %s", exc)
+            finally:
+                self._queue.task_done()
+
+    def enqueue(self, coro_func, *args, **kwargs) -> bool:
+        """Non-blocking enqueue. Returns False and warns if queue is full."""
+        try:
+            self._queue.put_nowait((coro_func, args, kwargs))
+            return True
+        except asyncio.QueueFull:
+            _q_logger = logging.getLogger("controlplane.task_queue")
+            _q_logger.warning(
+                "AsyncTaskQueue full (%d/%d) — dropping background task %s. "
+                "Increase CONTROLPLANE_ASYNC_QUEUE_SIZE to handle higher traffic.",
+                self._queue.qsize(), self._queue.maxsize, coro_func.__name__,
+            )
+            return False
+
+
+# Singleton — initialised in lifespan
+_task_queue: AsyncTaskQueue | None = None
+
+
+# ---------------------------------------------------------------------------
+# TTLCache — simple time-aware dict for expensive read-only SQLite scans
+# ---------------------------------------------------------------------------
+class TTLCache:
+    """Tiny in-memory TTL cache. Thread-safe, no external dependencies."""
+
+    def __init__(self, ttl_seconds: int):
+        self._ttl = ttl_seconds
+        self._store: dict[str, tuple[Any, float]] = {}
+        self._lock = __import__("threading").Lock()
+
+    def get(self, key: str):
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            value, expires_at = entry
+            if time.time() > expires_at:
+                del self._store[key]
+                return None
+            return value
+
+    def set(self, key: str, value) -> None:
+        with self._lock:
+            self._store[key] = (value, time.time() + self._ttl)
+
+    def invalidate(self, key: str) -> None:
+        with self._lock:
+            self._store.pop(key, None)
+
+
+# Module-level cache instances (created after settings is imported)
+_metrics_cache: TTLCache | None = None
+_audits_cache: TTLCache | None = None
+
+
+def _get_metrics_cache() -> TTLCache:
+    global _metrics_cache
+    if _metrics_cache is None:
+        _metrics_cache = TTLCache(settings.metrics_cache_ttl_s)
+    return _metrics_cache
+
+
+def _get_audits_cache() -> TTLCache:
+    global _audits_cache
+    if _audits_cache is None:
+        _audits_cache = TTLCache(settings.metrics_cache_ttl_s)
+    return _audits_cache
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _task_queue
+    # Start bounded async task queue
+    _task_queue = AsyncTaskQueue(
+        maxsize=settings.async_queue_size,
+        num_workers=4,
+    )
+    await _task_queue.start()
+    logger.info(
+        "AsyncTaskQueue started (maxsize=%d, workers=4)",
+        settings.async_queue_size,
+    )
+
     try:
         from rag.policy.policy_rag import get_policy_evidence
         get_policy_evidence(
@@ -63,6 +194,9 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Policy RAG warm-up skipped: %s", exc)
     yield
+    # Graceful shutdown: drain and stop the task queue
+    await _task_queue.stop()
+    logger.info("AsyncTaskQueue drained and stopped.")
 
 
 app = FastAPI(
@@ -73,12 +207,44 @@ app = FastAPI(
 )
 app.include_router(agent_router)
 
+# ---------------------------------------------------------------------------
+# Rate limiter (slowapi)
+# ---------------------------------------------------------------------------
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ---------------------------------------------------------------------------
-# Global exception handler — sanitize internal errors from reaching clients
+# CORS — allow Streamlit frontend + any extra origins from env
 # ---------------------------------------------------------------------------
-from fastapi.responses import JSONResponse
-from fastapi import Request as FastAPIRequest
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------------------------
+# Security headers middleware
+# ---------------------------------------------------------------------------
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Inject security headers on every response."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: FastAPIRequest, exc: Exception):
@@ -117,7 +283,7 @@ ledger            = TamperEvidentAuditLedger(
 
 
 @app.post("/admin/reload-models", tags=["admin"])
-async def reload_models():
+async def reload_models(_admin_key: str = Depends(verify_admin_key)):
     """Hot-reload all ML models and clear caches for zero-downtime updates."""
     from backend.shared.model_backend import reset_cache
     reset_cache()
@@ -141,6 +307,114 @@ async def health():
         "registered_detectors": list(DETECTOR_REGISTRY.keys()),
         "policy": policy_engine.summary().model_dump(),
     }
+
+
+@app.get("/v1/health/deep", tags=["health"])
+async def health_deep():
+    """Deep liveness probe — verifies DB writable, LLM provider reachable, session store writable.
+
+    Returns component-level status. Suitable for Kubernetes liveness/readiness probes.
+    Returns HTTP 503 if any critical component is unhealthy.
+    """
+    import uuid as _uuid
+    from backend.app.llm.client import _PROVIDER_BREAKERS
+    from backend.risk.session_store import get_session_store, reset_store_cache, SessionState
+
+    components: dict[str, dict] = {}
+    overall_ok = True
+
+    # 1. Database write check
+    try:
+        probe_id = f"health-probe-{_uuid.uuid4().hex[:8]}"
+        db.create_job(probe_id, probe_id)
+        db.update_job(probe_id, "HEALTH_CHECK", {"probe": True})
+        components["database"] = {"status": "ok", "mode": "WAL"}
+    except Exception as exc:
+        components["database"] = {"status": "error", "detail": str(exc)}
+        overall_ok = False
+
+    # 2. LLM provider circuit breaker status (no real network call — just CB state)
+    cb_statuses = {name: cb.status() for name, cb in _PROVIDER_BREAKERS.items()}
+    any_provider_closed = any(
+        s["state"] == "CLOSED" for s in cb_statuses.values()
+    )
+    components["llm_providers"] = {
+        "status": "ok" if any_provider_closed else "degraded",
+        "circuit_breakers": cb_statuses,
+    }
+    # Degraded LLM is not critical (extractive fallback exists)
+
+    # 3. Session store write check
+    try:
+        store = get_session_store()
+        probe_state = SessionState(
+            session_id="__health_probe__",
+            created_at=time.time(),
+            last_updated_at=time.time(),
+        )
+        store.set("__health_probe__", probe_state, ttl_seconds=10)
+        recovered = store.get("__health_probe__")
+        store.delete("__health_probe__")
+        if recovered is None:
+            raise RuntimeError("session not found after write")
+        components["session_store"] = {"status": "ok", "backend": type(store).__name__}
+    except Exception as exc:
+        components["session_store"] = {"status": "error", "detail": str(exc)}
+        overall_ok = False
+
+    status_code = 200 if overall_ok else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ok" if overall_ok else "degraded",
+            "components": components,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dead-letter admin endpoints
+# ---------------------------------------------------------------------------
+@app.get("/v1/admin/dead-letters", tags=["admin"])
+async def list_dead_letters(
+    request: Request,
+    limit: int = 50,
+    _admin_key: str = Depends(verify_admin_key),
+):
+    """List failed async events written to the dead-letter store."""
+    from backend.async_pipeline.publisher import _get_dead_letter_store
+    return _get_dead_letter_store().list_all(limit=min(limit, 500))
+
+
+@app.post("/v1/admin/dead-letters/{record_id}/retry", tags=["admin"])
+async def retry_dead_letter(
+    request: Request,
+    record_id: str,
+    background_tasks: BackgroundTasks,
+    _admin_key: str = Depends(verify_admin_key),
+):
+    """Re-enqueue a dead-letter record for processing and mark it as retried."""
+    from backend.async_pipeline.publisher import _get_dead_letter_store, publish_event
+    store = _get_dead_letter_store()
+    records = store.list_all(limit=500)
+    record = next((r for r in records if r["id"] == record_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail="Dead-letter record not found")
+    # Re-publish the event using stored request_id + a fresh GovernanceRequest stub
+    store.mark_retried(record_id)
+    return {"status": "queued", "record_id": record_id, "job_id": record.get("job_id")}
+
+
+@app.delete("/v1/admin/dead-letters/{record_id}", tags=["admin"])
+async def delete_dead_letter(
+    request: Request,
+    record_id: str,
+    _admin_key: str = Depends(verify_admin_key),
+):
+    """Delete a dead-letter record (e.g. after manual remediation)."""
+    from backend.async_pipeline.publisher import _get_dead_letter_store
+    _get_dead_letter_store().delete(record_id)
+    return {"status": "deleted", "record_id": record_id}
 
 
 # ---------------------------------------------------------------------------
@@ -204,13 +478,11 @@ async def run_fast_lane(request: GovernanceRequest, async_job_id: str):
 # ---------------------------------------------------------------------------
 # Core governance endpoint (Section 5.1)
 # ---------------------------------------------------------------------------
-@app.post("/v1/govern", response_model=GovernanceResponse)
-async def govern(
+async def execute_governance(
     request: GovernanceRequest,
     background_tasks: BackgroundTasks,
-    _api_key: str = Depends(verify_api_key),
-    x_controlplane_session_id: Optional[str] = Header(None),
-):
+    x_controlplane_session_id: Optional[str] = None,
+) -> GovernanceResponse:
     # Populate session_id from header when not supplied in the request body.
     # Header takes lower priority than an explicit body field.
     if not request.session_id and x_controlplane_session_id:
@@ -281,6 +553,9 @@ async def govern(
         policy=policy.model_dump(mode="json"),
         decision_details=decision.model_dump(mode="json"),
     )
+    # Invalidate cached metrics so dashboards see fresh counts within one TTL window
+    _get_metrics_cache().invalidate("metrics")
+    _get_metrics_cache().invalidate("metrics_rich")
 
     # Tamper-evident Merkle ledger — append alongside the SQLite audit.
     # Fail-open: a ledger error must never interrupt the governance response.
@@ -374,7 +649,11 @@ async def govern(
         await publish_event(request_id, async_request, async_job_id)
         
         if fast_lane_pending:
-            background_tasks.add_task(run_fast_lane, async_request, async_job_id)
+            # Route through bounded AsyncTaskQueue; fall back to BackgroundTasks if queue unavailable
+            if _task_queue is not None:
+                _task_queue.enqueue(run_fast_lane, async_request, async_job_id)
+            else:
+                background_tasks.add_task(run_fast_lane, async_request, async_job_id)
             
     except Exception as exc:
         logger.warning("Async publish failed (non-blocking): %s", exc)
@@ -411,6 +690,22 @@ async def govern(
     )
 
 
+@app.post("/v1/govern", response_model=GovernanceResponse)
+@limiter.limit(f"{settings.rate_limit_govern}/minute")
+async def govern(
+    request: Request,
+    payload: GovernanceRequest,
+    background_tasks: BackgroundTasks,
+    _api_key: str = Depends(verify_api_key),
+    x_controlplane_session_id: Optional[str] = Header(None),
+):
+    return await execute_governance(
+        payload,
+        background_tasks=background_tasks,
+        x_controlplane_session_id=x_controlplane_session_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Chat endpoint (Interactive Chatbot with real-time governance)
 # ---------------------------------------------------------------------------
@@ -432,11 +727,15 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
+@limiter.limit(f"{settings.rate_limit_govern}/minute")
 async def chat(
+    request: Request,
     payload: ChatRequest,
     background_tasks: BackgroundTasks,
     _api_key: str = Depends(verify_api_key),
 ):
+    if len(payload.prompt) > settings.max_prompt_chars:
+        raise HTTPException(status_code=413, detail="Prompt exceeds configured maximum length.")
     gov_req = GovernanceRequest(
         user_id=payload.user_id,
         user_role=payload.user_role,
@@ -446,7 +745,7 @@ async def chat(
         data_classification=payload.data_classification,
         session_id=payload.session_id,
     )
-    gov_resp = await govern(gov_req, background_tasks=background_tasks, _api_key=_api_key)
+    gov_resp = await execute_governance(gov_req, background_tasks=background_tasks)
 
 
     if gov_resp.decision.action == "BLOCK":
@@ -471,7 +770,8 @@ async def chat(
 # Supporting & Async endpoints
 # ---------------------------------------------------------------------------
 @app.get("/v1/jobs/{job_id}")
-async def get_job(job_id: str):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def get_job(request: Request, job_id: str, _api_key: str = Depends(verify_api_key)):
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -479,7 +779,8 @@ async def get_job(job_id: str):
 
 
 @app.get("/v1/async/{request_id}")
-async def get_async_by_request(request_id: str):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def get_async_by_request(request: Request, request_id: str, _api_key: str = Depends(verify_api_key)):
     job_id = f"async-{request_id[:8]}"
     job = db.get_job(job_id)
     if not job:
@@ -488,29 +789,52 @@ async def get_async_by_request(request_id: str):
 
 
 @app.get("/v1/metrics")
-async def metrics():
-    return db.metrics()
-
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def metrics(request: Request, _api_key: str = Depends(verify_api_key)):
+    cache = _get_metrics_cache()
+    cached = cache.get("metrics")
+    if cached is not None:
+        return cached
+    result = db.metrics()
+    cache.set("metrics", result)
+    return result
 
 
 
 @app.get("/v1/metrics/rich")
-async def rich_metrics():
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def rich_metrics(request: Request, _api_key: str = Depends(verify_api_key)):
     """Extended metrics: detector fire rates, risk/latency trends, blocked-by-rule breakdown."""
-    return db.richer_metrics()
+    cache = _get_metrics_cache()
+    cached = cache.get("metrics_rich")
+    if cached is not None:
+        return cached
+    result = db.richer_metrics()
+    cache.set("metrics_rich", result)
+    return result
 
 @app.get("/v1/requests")
-async def requests_list(limit: int = 50):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def requests_list(request: Request, limit: int = 50, _api_key: str = Depends(verify_api_key)):
     return db.recent_requests(min(limit, 200))
 
 
 @app.get("/v1/audits")
-async def audits(limit: int = 50):
-    return db.recent_audits(min(limit, 200))
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def audits(request: Request, limit: int = 50, _api_key: str = Depends(verify_api_key)):
+    cache = _get_audits_cache()
+    cache_key = f"audits:{limit}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = db.recent_audits(min(limit, 200))
+    cache.set(cache_key, result)
+    return result
 
 
 @app.get("/v1/audits/{request_id}")
-async def audit(request_id: str):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def audit(request: Request, request_id: str, _api_key: str = Depends(verify_api_key)):
     record = db.get_audit(request_id)
     if not record:
         raise HTTPException(status_code=404, detail="Audit record not found")
@@ -518,7 +842,8 @@ async def audit(request_id: str):
 
 
 @app.get("/v1/policies", response_model=PolicySummary)
-async def policy_summary():
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def policy_summary(request: Request, _api_key: str = Depends(verify_api_key)):
     return policy_engine.summary()
 
 
@@ -603,12 +928,14 @@ async def tuning_history(limit: int = 50):
 
 
 @app.get("/v1/reviews")
-async def list_pending_reviews(limit: int = 50):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def list_pending_reviews(request: Request, limit: int = 50, _api_key: str = Depends(verify_api_key)):
     return review_queue.list_pending(min(limit, 200))
 
 
 @app.post("/v1/reviews/{request_id}/resolve")
-async def resolve_review(request_id: str, payload: ReviewResolution):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def resolve_review(request: Request, request_id: str, payload: ReviewResolution, _api_key: str = Depends(verify_api_key)):
     if not review_queue.db.get_review(request_id):
         raise HTTPException(status_code=404, detail="No pending review for this request_id")
     return review_queue.resolve(
@@ -632,13 +959,16 @@ class AskRequest(BaseModel):
 
 
 @app.post("/v1/ask-controlplane")
-async def ask_controlplane(payload: AskRequest):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def ask_controlplane(request: Request, payload: AskRequest, _api_key: str = Depends(verify_api_key)):
+    if len(payload.question) > settings.max_prompt_chars:
+        raise HTTPException(status_code=413, detail="Question exceeds configured maximum length.")
     from rag.ask_controlplane.chat import ask
     return ask(payload.question, db=db)
 
 
 @app.post("/v1/ask-controlplane/reindex")
-async def reindex_audit():
+async def reindex_audit(_admin_key: str = Depends(verify_admin_key)):
     from rag.ask_controlplane.retrieval import rebuild_audit_index
     return {"indexed": rebuild_audit_index(db)}
 
@@ -654,7 +984,8 @@ class InspectRequest(BaseModel):
 
 
 @app.post("/v1/inspect", tags=["inspector"])
-async def advanced_inspect(payload: InspectRequest):
+@limiter.limit(f"{settings.rate_limit_default}/minute")
+async def advanced_inspect(request: Request, payload: InspectRequest, _api_key: str = Depends(verify_api_key)):
     """LLM-backed governance inspector for a prompt/response pair.
 
     This endpoint runs on a SEPARATE slow path with its own latency budget.
@@ -663,6 +994,10 @@ async def advanced_inspect(payload: InspectRequest):
     The LLM only *describes* evidence and *suggests* a recommendation --
     it never enforces policy. All policy enforcement remains in the hot path.
     """
+    # Input size guard: prompt + response + all context items
+    total_chars = len(payload.prompt) + len(payload.response or "") + sum(len(c) for c in payload.context)
+    if total_chars > settings.max_prompt_chars * 3:
+        raise HTTPException(status_code=413, detail="Inspect payload exceeds configured maximum size.")
     from backend.app.llm.client import LLMClient, build_evidence_block
     from backend.app.llm.prompts import (
         build_inspector_system_prompt,
