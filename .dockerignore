@@ -1,4 +1,4 @@
-﻿# Git & CI
+# Git & CI
 .git/
 .gitignore
 __pycache__/
@@ -54,8 +54,6 @@ audit-report.json
 
 # Docs / extras not needed in image
 *.md
-*.txt
 plan.md
-HANDOFF*.md
-*.json
-skills_tree.json
+HANDOFF*
+!requirements.txt
